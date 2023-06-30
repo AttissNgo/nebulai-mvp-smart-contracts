@@ -4,15 +4,11 @@ pragma solidity ^0.8.13;
 import "forge-std/Script.sol";
 
 import "../src/Governor.sol";
-import "../src/Tokens/RewardToken.sol";
-import "../src/Tokens/NEBToken.sol";
-import "../src/DAO/Treasury.sol";
+import "../src/Treasury.sol";
 
 contract DeploymentScript is Script {
 
     Governor public governor;
-    RewardToken public rewardToken;
-    NEBToken public nebToken;
     Treasury public treasury;
 
     address[] public admins = [
@@ -40,23 +36,14 @@ contract DeploymentScript is Script {
         governor = new Governor(admins, sigsRequired);
         // deploy treasury
         treasury = new Treasury(address(governor));
-        // deploy neb
-        nebToken = new NEBToken(address(treasury));
-        // deploy reward token
-        rewardToken = new RewardToken(address(governor), issuers);
-        
         
         vm.stopBroadcast();
 
         string memory obj1 = "some key";
         string memory govAddr = vm.serializeAddress(obj1, "GovernorAddress", address(governor));
-        string memory nebTokenAddr = vm.serializeAddress(obj1, "NebTokenAddress", address(nebToken));
-        string memory rewardTokenAddr = vm.serializeAddress(obj1, "RewardTokenAddress", address(rewardToken));
         string memory treasuryAddr = vm.serializeAddress(obj1, "TreasuryAddress", address(treasury));
 
         vm.writeJson(govAddr, "./deploymentInfo.json");
-        vm.writeJson(nebTokenAddr, "./deploymentInfo.json");
-        vm.writeJson(rewardTokenAddr, "./deploymentInfo.json");
         vm.writeJson(treasuryAddr, "./deploymentInfo.json");
     }
 }

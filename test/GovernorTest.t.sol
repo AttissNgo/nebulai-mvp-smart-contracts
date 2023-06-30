@@ -27,7 +27,7 @@ contract GovernorTest is Test, TestSetup {
     event SignaturesRequiredChanged(uint256 signaturesRequired);
 
     function setUp() public {
-        _deployContracts();
+        _setUp();
     }
 
     function test_governor_deployment() public {

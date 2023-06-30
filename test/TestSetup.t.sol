@@ -7,9 +7,13 @@ import "./USDTMock.sol";
 import "chainlink/VRFCoordinatorV2Mock.sol";
 
 import "../src/Governor.sol";
-import "../src/DAO/Treasury.sol";
-import "../src/Tokens/NEBToken.sol";
-import "../src/Tokens/RewardToken.sol";
+import "../src/Treasury.sol";
+import "../src/Whitelist.sol";
+import "../src/JuryPool.sol";
+import "../src/Court.sol";
+import "../src/EscrowFactory.sol";
+import "../src/Marketplace.sol";
+
 
 contract TestSetup is Test {
 
@@ -23,8 +27,17 @@ contract TestSetup is Test {
     uint8 sigsRequired = 3;
 
     Treasury public treasury;
-    NEBToken public nebToken;
-    RewardToken public rewardToken;
+    uint256 initialTreasuryBalanceMATIC = 1000 ether;
+    uint256 initialTreasuryBalanceUSDT = 1000 ether;
+
+    Whitelist public whitelist;
+
+    JuryPool public juryPool;
+    Court public court;
+
+    EscrowFactory public escrowFactory;
+    Marketplace public marketplace;
+    address[] public approvedTokens;
 
     // test users
     address public alice = vm.addr(1);
@@ -53,42 +66,67 @@ contract TestSetup is Test {
     address public xerxes = vm.addr(24);
     address public yanni = vm.addr(25);
     address public zorro = vm.addr(26);
-
     // test admins
     address public admin1 = vm.addr(100);
     address public admin2 = vm.addr(101);
     address public admin3 = vm.addr(102);
     address public admin4 = vm.addr(103);
-
-    // issuer for reward token
-    address public issuer = vm.addr(200);
-    address public issuer2 = vm.addr(201);
-    address[] public issuers = [issuer, issuer2];
-
+    
     address[] public admins = [admin1, admin2, admin3, admin4];
     address[] public users = [alice,bob,carlos,david,erin,frank,grace,heidi,ivan,judy,kim,laura,mike,niaj,olivia,patricia,quentin,russel,sean,tabitha,ulrich,vincent,winona,xerxes,yanni,zorro];
 
-
-    function _deployContracts() internal {
-        // deploy usdt mock
+    function _setUp() internal {
+        // deploy contracts
         usdt = new USDTMock(); 
-        // deploy VRF mock and fund subscription
         vrf = new VRFCoordinatorV2Mock(1, 1); 
         vm.prank(admin1);
         subscriptionId = vrf.createSubscription();
         vrf.fundSubscription(subscriptionId, 1 ether);
-        // deploy governor
         governor = new Governor(admins, sigsRequired);
-        // deploy treasury
         treasury = new Treasury(address(governor));
-        // deploy neb
-        nebToken = new NEBToken(address(treasury));
-        // deploy reward token
-        rewardToken = new RewardToken(address(governor), issuers);
+        whitelist = new Whitelist(address(governor));
+        juryPool = new JuryPool(address(governor), address(whitelist));
+        court = new Court(
+            address(governor), 
+            address(juryPool),
+            address(vrf),
+            subscriptionId
+        );
+        approvedTokens.push(address(usdt));
+        escrowFactory = new EscrowFactory();
+        marketplace = new Marketplace(
+            address(governor), 
+            address(whitelist), 
+            address(court), 
+            address(escrowFactory),
+            approvedTokens
+        );
+        // register new marketplace address in court
+        vm.prank(admin1);
+        bytes memory data = abi.encodeWithSignature("registerMarketplace(address)", address(marketplace));
+        uint256 txIndex = governor.proposeTransaction(address(court), 0, data);
+        util_executeGovernorTx(txIndex);
+
+        // fund treasury with USDT and MATIC
+        vm.deal(address(treasury), initialTreasuryBalanceMATIC);
+        usdt.mint(address(treasury), initialTreasuryBalanceUSDT);
+
+        // supply ether & usdt
+        for(uint i; i < users.length; ++i) {
+            vm.deal(users[i], 10000 ether);
+            usdt.mint(users[i], 10000 ether);
+        }
+
+        // label addresses
+        _labelTestAddresses();
         
-        
-        
-        
+    }
+
+    function _whitelistUsers() public {
+        for(uint i; i < users.length; ++i) {
+            vm.prank(admin1);
+            whitelist.approveAddress(users[i]);
+        }
     }
 
     function util_executeGovernorTx(uint256 _txIndex) internal {
@@ -99,6 +137,43 @@ contract TestSetup is Test {
                 governor.signTransaction(_txIndex);
             }
         } 
+    }
+
+    function _labelTestAddresses() public {
+        vm.label(address(usdt), "USDT");
+        vm.label(address(treasury), "Treasury");
+        vm.label(address(governor), "Governor");
+
+        vm.label(alice, "alice");
+        vm.label(bob,"bob");
+        vm.label(carlos, "carlos");
+        vm.label(david, "david");
+        vm.label(erin, "erin");
+        vm.label(frank, "frank");
+        vm.label(grace, "grace");
+        vm.label(heidi, "heidi");
+        vm.label(ivan, "ivan");
+        vm.label(judy, "judy");
+        vm.label(kim, "kim");
+        vm.label(laura, "laura");
+        vm.label(mike, "mike");
+        vm.label(niaj, "niaj");
+        vm.label(olivia, "olivia");
+        vm.label(patricia, "patricia");
+        vm.label(quentin, "quentin");
+        vm.label(russel, "russel");
+        vm.label(sean, "sean");
+        vm.label(tabitha, "tabitha");
+        vm.label(ulrich, "ulrich");
+        vm.label(vincent, "vincent");
+        vm.label(winona, "winona");
+        vm.label(xerxes, "xerxes");
+        vm.label(yanni, "yanni");
+        vm.label(zorro, "zorro");
+        vm.label(admin1, "admin1");
+        vm.label(admin2, "admin2");
+        vm.label(admin3, "admin3");
+        vm.label(admin4, "admin4");
     }
 
     // function testSetNumber(uint256 x) public {
