@@ -30,6 +30,7 @@ contract CourtTest is Test, TestSetup {
     function setUp() public {
         _setUp();
         _whitelistUsers();
+        _registerJurors();
         dueDate = block.timestamp + 30 days;
         (projectId_MATIC, petitionId_MATIC) = _disputedProject_MATIC();
     }
@@ -190,6 +191,28 @@ contract CourtTest is Test, TestSetup {
     //     // wrong phase
 
     // }
+
+    //////////////////////////
+    ///   JURY SELECTION   ///
+    //////////////////////////
+
+    function test_jury_selection() public {
+        Court.Petition memory p = court.getPetition(petitionId_MATIC);
+        // buyer pays
+        vm.pauseGasMetering();
+        test_payArbitrationFee();
+        vm.recordLogs();
+        vm.prank(p.defendant);
+        court.payArbitrationFee{value: p.arbitrationFee}(petitionId_MATIC, evidence1);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        uint256 requestId = uint(entries[2].topics[1]);
+        vm.resumeGasMetering();
+        vrf.fulfillRandomWords(requestId, address(court));
+        Court.Jury memory jury = court.getJury(p.petitionId);
+        for(uint i; i < jury.drawnJurors.length; ++i) {
+            emit log_address(jury.drawnJurors[i]);
+        }
+    }
 
     ///////////////////////////////
     ///   GOVERNANCE & CONFIG   ///

@@ -38,6 +38,7 @@ contract MarketplaceTest is Test, TestSetup {
     function setUp() public {
         _setUp();
         _whitelistUsers();
+        _registerJurors();
         dueDate = block.timestamp + 30 days;
         testProjectId_MATIC = _createProject();
         testProjectId_ERC20 = _createProjectERC20();

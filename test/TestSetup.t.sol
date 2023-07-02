@@ -81,7 +81,7 @@ contract TestSetup is Test {
         vrf = new VRFCoordinatorV2Mock(1, 1); 
         vm.prank(admin1);
         subscriptionId = vrf.createSubscription();
-        vrf.fundSubscription(subscriptionId, 1 ether);
+        vrf.fundSubscription(subscriptionId, 100 ether);
         governor = new Governor(admins, sigsRequired);
         treasury = new Treasury(address(governor));
         whitelist = new Whitelist(address(governor));
@@ -126,6 +126,15 @@ contract TestSetup is Test {
         for(uint i; i < users.length; ++i) {
             vm.prank(admin1);
             whitelist.approveAddress(users[i]);
+        }
+    }
+
+    function _registerJurors() public {
+        uint256 stakeAmount = 100 ether;
+        for(uint i; i < users.length; ++i) {
+            vm.prank(users[i]);
+            juryPool.registerAsJuror{value: stakeAmount}();
+            stakeAmount += 10 ether;
         }
     }
 
