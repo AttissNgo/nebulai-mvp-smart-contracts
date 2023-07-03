@@ -87,8 +87,13 @@ contract JuryPool {
         return jurors[_index];
     }
 
-    // function getJurorStatus(address _juror) public view returns (JurorStatus) {
+    function getJurorStatus(address _juror) public view returns (JurorStatus) {
+        Juror memory juror = getJuror(jurorIndex[_juror]);
+        return juror.jurorStatus;
+    }
 
+    // function getJurorIndex(address _juror) public view returns (uint256) {
+    //     return jurorIndex[_juror];
     // }
 
     function getJurorStake(address _juror) public view returns (uint256) {

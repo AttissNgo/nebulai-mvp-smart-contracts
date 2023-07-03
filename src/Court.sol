@@ -86,6 +86,9 @@ contract Court is VRFConsumerBaseV2 {
     event PetitionCreated(uint256 indexed petitionId, address marketplace, uint256 projectId);
     event ArbitrationFeePaid(uint256 indexed petitionId, address indexed user);
     event JurySelectionInitiated(uint256 indexed petitionId, uint256 requestId);
+    event JuryDrawn(uint256 indexed petitionId, bool isRedraw);
+    event JurorConfirmed(uint256 indexed petitionId, address jurorAddress);
+    event VotingInitiated(uint256 indexed petitionId);
 
     event MarketplaceRegistered(address marketplace);
     
@@ -103,6 +106,12 @@ contract Court is VRFConsumerBaseV2 {
     error Court__ArbitrationFeeNotPaid();
     error Court__InsufficientAmount();
     error Court__EvidenceCanNoLongerBeSubmitted();
+    // juror actions
+    error Court__JurorSeatsFilled();
+    error Court__InvalidJuror();
+    error Court__InsufficientJurorStake();
+    error Court__AlreadyConfirmedJuror();
+    error Court__NotDrawnJuror();
 
     modifier onlyGovernor() {
         if(msg.sender != GOVERNOR) revert Court__OnlyGovernor();
@@ -132,7 +141,6 @@ contract Court is VRFConsumerBaseV2 {
         // uint256 petitionId = vrfRequestToPetition[requestId];
         Petition storage petition = petitions[vrfRequestToPetition[requestId]];
         bool isRedraw;   
-        // if(selectionStart[petitionId] != 0) isRedraw = true; 
         if(petition.selectionStart != 0) isRedraw = true;
         Jury storage jury = juries[petition.petitionId];
         uint256 numNeeded = jurorsNeeded(petition.petitionId) * 3; // will draw 3x jurors needed
@@ -158,6 +166,7 @@ contract Court is VRFConsumerBaseV2 {
             for(uint i; i < jurorsDrawn.length; ++i) {
                 if(jurorsDrawn[i] == drawnJuror.jurorAddress) isInvalid = true; 
             }
+            // if redraw check against confirmed jurors as well
             if(!isInvalid) {
                 jurorsDrawn[numSelected] = drawnJuror.jurorAddress;
                 ++numSelected;
@@ -167,7 +176,7 @@ contract Court is VRFConsumerBaseV2 {
         }
         jury.drawnJurors = jurorsDrawn;
         if(!isRedraw) petition.selectionStart = block.timestamp;
-        // emit JuryDrawn(petitionId, isRedraw);   ` 
+        emit JuryDrawn(petition.petitionId, isRedraw);   
     }
 
     function _isValidJuror(IJuryPool.Juror memory _juror, address _plaintiff, address _defendant) internal pure returns (bool) {
@@ -293,6 +302,39 @@ contract Court is VRFConsumerBaseV2 {
         if(petitions[petitionId].isAppeal) return 5;
         else return 3;
     } 
+
+    function _juryAssembled(uint256 _petitionId) private {
+        Petition storage petition = petitions[_petitionId];
+        petition.phase = Phase.Voting;
+        petition.votingStart = block.timestamp;
+        emit VotingInitiated(_petitionId);
+    }
+
+    /////////////////////////
+    ///   JUROR ACTIONS   ///
+    /////////////////////////
+
+    function acceptCase(uint256 _petitionId) external payable {
+        Jury storage jury = juries[_petitionId];
+        if(jury.confirmedJurors.length >= jurorsNeeded(_petitionId)) revert Court__JurorSeatsFilled();
+        // for(uint i; i < jury.confirmedJurors.length; ++i) {
+        //     if(msg.sender == jury.confirmedJurors[i]) revert Court__AlreadyConfirmedJuror();
+        // }
+        if(msg.value < jurorFlatFee) revert Court__InsufficientJurorStake();
+        // if(juryPool.getJurorStatus(msg.sender) != IJuryPool.JurorStatus.Active) revert Court__InvalidJuror();
+        bool isDrawn;
+        for(uint i; i < jury.drawnJurors.length; ++i) {
+            if(msg.sender == jury.drawnJurors[i]) isDrawn = true;
+        }
+        if(!isDrawn) revert Court__NotDrawnJuror();
+
+        jurorStakes[msg.sender][_petitionId] = msg.value;
+        jury.confirmedJurors.push(msg.sender);
+        if(jury.confirmedJurors.length == jurorsNeeded(_petitionId)) {
+            _juryAssembled(_petitionId);
+        }
+        emit JurorConfirmed(_petitionId, msg.sender);
+    }
 
     //////////////////////
     ///   GOVERNANCE   ///

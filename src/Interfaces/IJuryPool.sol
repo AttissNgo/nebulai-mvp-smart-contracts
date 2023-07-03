@@ -20,5 +20,7 @@ interface IJuryPool {
 
     function getJuror(uint256 _index) external view returns (Juror memory);
     function juryPoolSize() external view returns (uint256);
+    function getJurorStatus(address _juror) external view returns (JurorStatus);
+    // function getJurorIndex(address _juror) external view returns (uint256);
     function getJurorStake(address _juror) external view returns (uint256);
 }
