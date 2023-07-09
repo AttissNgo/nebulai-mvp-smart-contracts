@@ -9,7 +9,6 @@ contract JuryPool {
     IWhitelist public immutable WHITELIST;
 
     enum JurorStatus {
-        Unregistered, // init prop, used to check if Juror exists
         Active, // the account can be drawn for cases
         Paused, // the account cannot be drawn for cases (juror can re-activate - de-activated by self or due to inactivity)
         Suspended // the account cannot be drawn for cases (under investigation - only governor can re-activate)
@@ -25,6 +24,7 @@ contract JuryPool {
 
     uint256 public minimumStake = 100 ether;
     mapping(address => uint256) private juryPoolStake;
+    // way to get stake out (gov)
 
     Juror[] public jurors;
     mapping(address => uint256) private jurorIndex;
@@ -32,11 +32,25 @@ contract JuryPool {
 
     event MinimumStakeSet(uint256 minimumStake);
     event JurorRegistered(address indexed juror, uint256 jurorIndex);
+    event JurorPaused(address indexed juror, uint256 jurorIndex);
+    event JurorReactivated(address indexed juror, uint256 indexed index);
+    event JurorSuspended(address indexed juror, uint256 indexed index);
+    event JurorReinstated(address indexed juror, uint256 indexed index);
+    event StakeWithdrawn(address indexed juror, uint256 withdrawAmount, uint256 totalStake);
+    event Staked(address indexed juror, uint256 stakeAmount, uint256 totalStake);
 
     error JuryPool__OnlyGovernor();
     error JuryPool__OnlyWhitelisted();
     error JuryPool__AlreadyRegistered();
     error JuryPool__MinimumStakeNotMet();
+    error JuryPool__NotRegistered();
+    error JuryPool__JurorNotActive();
+    error JuryPool__JurorAlreadyActive();
+    error JuryPool__JurorSuspended();
+    error JuryPool__JurorAlreadySuspended();
+    error JuryPool__JurorNotSuspended();
+    error JuryPool__InsufficientStake();
+    error JuryPool_TransferFailed();
 
     modifier onlyGovernor() {
         if(msg.sender != GOVERNOR) revert JuryPool__OnlyGovernor();
@@ -45,6 +59,11 @@ contract JuryPool {
 
     modifier onlyWhitelisted() {
         if(!WHITELIST.isApproved(msg.sender)) revert JuryPool__OnlyWhitelisted();
+        _;
+    }
+
+    modifier onlyRegistered() {
+        if(!isJuror[msg.sender]) revert JuryPool__NotRegistered();
         _;
     }
 
@@ -57,6 +76,7 @@ contract JuryPool {
     function registerAsJuror() external payable onlyWhitelisted returns (uint256) {
         if(isJuror[msg.sender]) revert JuryPool__AlreadyRegistered();
         if(msg.value < minimumStake) revert JuryPool__MinimumStakeNotMet();
+        juryPoolStake[msg.sender] += msg.value;
         Juror memory juror;
         juror.jurorAddress = msg.sender;
         juror.jurorStatus = JurorStatus.Active;
@@ -68,7 +88,36 @@ contract JuryPool {
         return index;
     }
 
-    
+    function pauseJuror() external onlyRegistered {
+        uint256 index = getJurorIndex(msg.sender);
+        Juror storage juror = jurors[index];
+        if(juror.jurorStatus != JurorStatus.Active) revert JuryPool__JurorNotActive();
+        juror.jurorStatus = JurorStatus.Paused;
+        emit JurorPaused(juror.jurorAddress, index);
+    } 
+
+    function reactivateJuror() external onlyRegistered {
+        uint256 index = getJurorIndex(msg.sender);
+        Juror storage juror = jurors[index];
+        if(juror.jurorStatus == JurorStatus.Active) revert JuryPool__JurorAlreadyActive();
+        if(juror.jurorStatus == JurorStatus.Suspended) revert JuryPool__JurorSuspended();
+        juror.jurorStatus = JurorStatus.Active;
+        emit JurorReactivated(juror.jurorAddress, index);
+    }
+
+    function stake() external payable onlyRegistered {
+        juryPoolStake[msg.sender] += msg.value;
+        emit Staked(msg.sender, msg.value, juryPoolStake[msg.sender]);
+    }
+
+    function withdrawStake(uint256 _withdrawAmount) external onlyRegistered {
+        if(getJurorStake(msg.sender) < _withdrawAmount) revert JuryPool__InsufficientStake();
+        juryPoolStake[msg.sender] -= _withdrawAmount;
+        (bool success, ) = msg.sender.call{value: _withdrawAmount}("");
+        if(!success) revert JuryPool_TransferFailed();
+        emit StakeWithdrawn(msg.sender, _withdrawAmount, juryPoolStake[msg.sender]);
+    }
+
     /////////////////
     ///   ADMIN   ///
     /////////////////
@@ -77,6 +126,24 @@ contract JuryPool {
         require(_minimumStake > 0);
         minimumStake = _minimumStake;
         emit MinimumStakeSet(_minimumStake);
+    }
+
+    function suspendJuror(address _juror) external onlyGovernor {
+        if(!isJuror[_juror]) revert JuryPool__NotRegistered();
+        uint256 index = getJurorIndex(_juror);
+        Juror storage juror = jurors[index];
+        if(juror.jurorStatus == JurorStatus.Suspended) revert JuryPool__JurorAlreadySuspended();
+        juror.jurorStatus = JurorStatus.Suspended;
+        emit JurorSuspended(juror.jurorAddress, index);
+    }
+
+    function reinstateJuror(address _juror) external onlyGovernor {
+        if(!isJuror[_juror]) revert JuryPool__NotRegistered();
+        uint256 index = getJurorIndex(_juror);
+        Juror storage juror = jurors[index];
+        if(juror.jurorStatus != JurorStatus.Suspended) revert JuryPool__JurorNotSuspended();
+        juror.jurorStatus = JurorStatus.Active;
+        emit JurorReinstated(juror.jurorAddress, index);
     }
 
     ///////////////////
@@ -92,9 +159,9 @@ contract JuryPool {
         return juror.jurorStatus;
     }
 
-    // function getJurorIndex(address _juror) public view returns (uint256) {
-    //     return jurorIndex[_juror];
-    // }
+    function getJurorIndex(address _juror) public view returns (uint256) {
+        return jurorIndex[_juror];
+    }
 
     function getJurorStake(address _juror) public view returns (uint256) {
         return juryPoolStake[_juror];

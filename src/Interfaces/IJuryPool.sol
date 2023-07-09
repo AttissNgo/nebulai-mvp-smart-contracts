@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 interface IJuryPool {
 
     enum JurorStatus {
-        Unregistered, // init prop, used to check if Juror exists
         Active, // the account can be drawn for cases
         Paused, // the account cannot be drawn for cases (juror can re-activate - de-activated by self or due to inactivity)
         Suspended // the account cannot be drawn for cases (under investigation - only governor can re-activate)
