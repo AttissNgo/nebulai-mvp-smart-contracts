@@ -30,6 +30,18 @@ contract GovernorTest is Test, TestSetup {
         _setUp();
     }
 
+    function _txWithTwoSigs() public returns (uint256) {
+        vm.prank(admin1);
+        uint256 txIndex = governor.proposeTransaction(
+            alice,
+            dummyValue1,
+            dummyData1
+        );
+        vm.prank(admin2);
+        governor.signTransaction(txIndex);
+        return txIndex;
+    }
+
     function test_governor_deployment() public {
         for(uint i = 0; i < admins.length; ++i) {
             assertEq(governor.admins(i), admins[i]);
@@ -75,10 +87,10 @@ contract GovernorTest is Test, TestSetup {
 
     function test_proposeTransaction() public returns (uint256) {
         vm.prank(admin1);
-        vm.expectEmit(true, true, true, true);
-        emit TransactionProposed(0, alice, dummyValue1, dummyData1, admin1);
-        vm.expectEmit(true, true, true, true);
-        emit TransactionSigned(0, admin1, 1);
+        vm.expectEmit(false, false, false, true);
+        emit TransactionProposed(1, alice, dummyValue1, dummyData1, admin1);
+        vm.expectEmit(false, false, false, true);
+        emit TransactionSigned(1, admin1, 1);
         uint256 txIndex = governor.proposeTransaction(
             alice,
             dummyValue1,
@@ -98,8 +110,8 @@ contract GovernorTest is Test, TestSetup {
 
     function test_signTransaction() public returns (uint256){
         uint256 txIndex = test_proposeTransaction();
-        vm.expectEmit(true, true, true, true);
-        emit TransactionSigned(0, admin2, 2);
+        vm.expectEmit(false, false, false, true);
+        emit TransactionSigned(1, admin2, 2);
         vm.prank(admin2);
         governor.signTransaction(txIndex);
         Governor.Transaction memory t = governor.getTransaction(txIndex);
@@ -118,7 +130,7 @@ contract GovernorTest is Test, TestSetup {
 
     function test_executeTransaction() public {
         // testing automatic execution upon enough sigs
-        uint256 txIndex = test_signTransaction();
+        uint256 txIndex = _txWithTwoSigs(); 
         Governor.Transaction memory t = governor.getTransaction(txIndex);
         vm.deal(address(governor), t.value);
         uint256 recipientBalBefore = t.to.balance;
@@ -136,14 +148,14 @@ contract GovernorTest is Test, TestSetup {
 
     function test_executeTransaction_revert() public {
         // insufficient sigs
-        uint256 txIndex = test_signTransaction();
+        uint256 txIndex = _txWithTwoSigs(); 
         vm.expectRevert(Governor.Governor__InsufficientSignatures.selector);
         vm.prank(admin1);
         governor.executeTransaction(txIndex);
     }
 
     function test_executeTransaction_manual() public {
-        uint256 txIndex1 = test_signTransaction();
+        uint256 txIndex1 = _txWithTwoSigs(); 
         Governor.Transaction memory t = governor.getTransaction(txIndex1);
         vm.deal(address(governor), t.value);
         assertEq(t.numSignatures, 2);
@@ -163,7 +175,7 @@ contract GovernorTest is Test, TestSetup {
     }
 
     function test_revokeSignature() public {
-        uint256 txIndex = test_signTransaction();
+        uint256 txIndex = _txWithTwoSigs(); 
         Governor.Transaction memory t = governor.getTransaction(txIndex);
         uint256 numSigs = t.numSignatures;
         vm.expectEmit(true, true, true, true);
@@ -176,15 +188,15 @@ contract GovernorTest is Test, TestSetup {
     }
 
     function test_revokeSignature_revert() public {
-        uint256 txIndex = test_signTransaction();
+        uint256 txIndex = _txWithTwoSigs(); 
         assertEq(governor.adminHasSigned(txIndex, admin4), false);
         vm.expectRevert(Governor.Governor__UserHasNotSigned.selector);
         vm.prank(admin4);
         governor.revokeSignature(txIndex);
     }
 
-    function test_cancelTransaction() public returns (uint256){
-        uint256 txIndex = test_signTransaction(); // proposed by admin 1
+    function test_cancelTransaction() public returns (uint256) {
+        uint256 txIndex = _txWithTwoSigs(); // proposed by admin 1
         vm.expectEmit(true, false, false, false);
         emit TransactionCancelled(txIndex);
         vm.prank(admin1);
@@ -195,7 +207,7 @@ contract GovernorTest is Test, TestSetup {
     }
 
     function test_cancelTransaction_revert() public {
-        uint256 txIndex = test_signTransaction(); // proposed by admin 1
+        uint256 txIndex = _txWithTwoSigs(); // proposed by admin 1
         vm.expectRevert(Governor.Governor__OnlyProposerCanCancel.selector);
         vm.prank(admin3);
         governor.cancelTransaction(txIndex);

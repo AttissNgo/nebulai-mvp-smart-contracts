@@ -29,6 +29,8 @@ contract CourtTest is Test, TestSetup {
     event JurorConfirmed(uint256 indexed petitionId, address jurorAddress);
     event VotingInitiated(uint256 indexed petitionId);
     event VoteCommitted(uint256 indexed petitionId, address indexed juror, bytes32 commit);
+    event RulingInitiated(uint256 indexed petitionId);
+    event VerdictReached(uint256 indexed petitionId, bool verdict, uint256 majorityVotes);
 
     function setUp() public {
         _setUp();
@@ -420,6 +422,29 @@ contract CourtTest is Test, TestSetup {
         vm.expectRevert(Court.Court__InvalidJuror.selector);
         vm.prank(p.plaintiff); // plaintiff cannot possibly be juror
         court.commitVote(p.petitionId, commit);
+    }
+
+    function test_allVotesCommitted() public {
+        vm.pauseGasMetering();
+        _petitionWithConfirmedJury(petitionId_MATIC);
+        vm.resumeGasMetering();
+        Court.Petition memory p = court.getPetition(petitionId_MATIC);
+        Court.Jury memory jury = court.getJury(p.petitionId);
+        bool vote = true;
+        bytes32 commit = keccak256(abi.encodePacked(vote, "someSalt"));
+        vm.prank(jury.confirmedJurors[0]);
+        court.commitVote(p.petitionId, commit);
+        vm.prank(jury.confirmedJurors[1]);
+        court.commitVote(p.petitionId, commit);
+        vm.expectEmit(true, true, false, true);
+        emit VoteCommitted(p.petitionId, jury.confirmedJurors[2], commit);
+        vm.expectEmit(true, false, false, false);
+        emit RulingInitiated(p.petitionId);
+        vm.prank(jury.confirmedJurors[2]);
+        court.commitVote(p.petitionId, commit);
+        p = court.getPetition(petitionId_MATIC);
+        assertEq(uint(p.phase), uint(Court.Phase.Ruling));
+        assertEq(p.rulingStart, block.timestamp);
     }
 
     ///////////////////////////////

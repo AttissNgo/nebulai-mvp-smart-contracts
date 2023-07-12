@@ -12,6 +12,7 @@ contract JuryPoolTest is Test, TestSetup {
     event JurorSuspended(address indexed juror, uint256 indexed index);
     event StakeWithdrawn(address indexed juror, uint256 withdrawAmount, uint256 totalStake);
     event Staked(address indexed juror, uint256 stakeAmount, uint256 totalStake);
+    event JuryReservesFunded(uint256 amount, address from);
 
     function setUp() public {
         _setUp();
@@ -244,6 +245,14 @@ contract JuryPoolTest is Test, TestSetup {
 
     // set minimum stake
 
-    
-
+    function test_fundJuryReserves() public {
+        uint256 juryReservesBefore = juryPool.getJuryReserves();
+        uint256 amount = 10 ether;
+        vm.expectEmit(false, false, false, true);
+        emit JuryReservesFunded(amount, alice);
+        vm.prank(alice);
+        juryPool.fundJuryReserves{value: amount}();
+        assertEq(juryPool.getJuryReserves(), juryReservesBefore + amount);
+    }
+ 
 }

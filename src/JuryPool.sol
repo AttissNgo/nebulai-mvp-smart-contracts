@@ -30,6 +30,9 @@ contract JuryPool {
     mapping(address => uint256) private jurorIndex;
     mapping(address => bool) public isJuror;
 
+    // reserves for emergency juror drawing
+    uint256 private juryReserves;
+
     event MinimumStakeSet(uint256 minimumStake);
     event JurorRegistered(address indexed juror, uint256 jurorIndex);
     event JurorPaused(address indexed juror, uint256 jurorIndex);
@@ -38,6 +41,7 @@ contract JuryPool {
     event JurorReinstated(address indexed juror, uint256 indexed index);
     event StakeWithdrawn(address indexed juror, uint256 withdrawAmount, uint256 totalStake);
     event Staked(address indexed juror, uint256 stakeAmount, uint256 totalStake);
+    event JuryReservesFunded(uint256 amount, address from);
 
     error JuryPool__OnlyGovernor();
     error JuryPool__OnlyWhitelisted();
@@ -118,6 +122,11 @@ contract JuryPool {
         emit StakeWithdrawn(msg.sender, _withdrawAmount, juryPoolStake[msg.sender]);
     }
 
+    function fundJuryReserves() external payable {
+        juryReserves += msg.value;
+        emit JuryReservesFunded(msg.value, msg.sender);
+    }
+
     /////////////////
     ///   ADMIN   ///
     /////////////////
@@ -169,6 +178,10 @@ contract JuryPool {
 
     function juryPoolSize() public view returns (uint256) {
         return jurors.length;
+    }
+
+    function getJuryReserves() public view returns (uint256) {
+        return juryReserves;
     }
 
 }

@@ -83,6 +83,7 @@ contract Court is VRFConsumerBaseV2 {
     uint24 public constant VOTING_PERIOD = 4 days;
     uint24 public constant RULING_PERIOD = 3 days;
 
+    event MarketplaceRegistered(address marketplace);
     event PetitionCreated(uint256 indexed petitionId, address marketplace, uint256 projectId);
     event ArbitrationFeePaid(uint256 indexed petitionId, address indexed user);
     event JurySelectionInitiated(uint256 indexed petitionId, uint256 requestId);
@@ -91,11 +92,9 @@ contract Court is VRFConsumerBaseV2 {
     event VotingInitiated(uint256 indexed petitionId);
     event VoteCommitted(uint256 indexed petitionId, address indexed juror, bytes32 commit);
     event RulingInitiated(uint256 indexed petitionId);
-
-    event MarketplaceRegistered(address marketplace);
+    event VoteRevealed(uint256 indexed petitionId, address indexed juror, bool vote);
+    event VerdictReached(uint256 indexed petitionId, bool verdict, uint256 majorityVotes);
     
-
-
     // permissions
     error Court__OnlyGovernor();
     error Court__OnlyMarketplace();
@@ -116,6 +115,11 @@ contract Court is VRFConsumerBaseV2 {
     error Court__NotDrawnJuror();
     error Court__JurorHasAlreadyCommmitedVote();
     error Court__InvalidCommit();
+    error Court__CannotRevealBeforeAllVotesCommitted();
+    error Court__AlreadyRevealed();
+    error Court__RevealDoesNotMatchCommit();
+
+    error Court__TransferFailed();
 
     modifier onlyGovernor() {
         if(msg.sender != GOVERNOR) revert Court__OnlyGovernor();
@@ -323,6 +327,53 @@ contract Court is VRFConsumerBaseV2 {
         emit RulingInitiated(_petitionId);
     }
 
+    function _countVotes(uint256 _petitionId) private view returns (uint256, uint256) {
+        Jury memory jury = getJury(_petitionId);
+        uint256 votesFor;
+        uint256 votesAgainst;
+        for(uint i; i < jury.confirmedJurors.length; ++i) {
+            if(hasRevealedVote(jury.confirmedJurors[i], _petitionId)) {
+                (votes[jury.confirmedJurors[i]][_petitionId]) ? ++votesFor : ++votesAgainst;
+            }
+        }
+        return(votesFor, votesAgainst);
+    }
+
+    function _renderVerdict(
+        uint256 _petitionId, 
+        uint256 _votesFor, 
+        uint256 _votesAgainst
+    ) 
+        private 
+    {
+        Petition storage petition = petitions[_petitionId];
+        petition.phase = Phase.Verdict;
+        petition.petitionGranted = (_votesFor > _votesAgainst);
+        petition.verdictRenderedDate = block.timestamp;
+        uint256 jurorFee = petition.arbitrationFee / jurorsNeeded(_petitionId);
+        uint256 remainingFees = petition.arbitrationFee;
+        Jury memory jury = getJury(_petitionId);
+        for(uint i; i < jury.confirmedJurors.length; ++i) {
+            if(hasRevealedVote(jury.confirmedJurors[i], _petitionId)) {
+                if(petition.petitionGranted && votes[jury.confirmedJurors[i]][_petitionId] == true) {
+                    feesToJuror[jury.confirmedJurors[i]] += jurorFee;
+                    remainingFees -= jurorFee;
+                } else if (!petition.petitionGranted && votes[jury.confirmedJurors[i]][_petitionId] == false) {
+                    feesToJuror[jury.confirmedJurors[i]] += jurorFee;
+                    remainingFees -= jurorFee;
+                }
+            }
+        }
+        feesHeld[_petitionId] -= petition.arbitrationFee;
+        if(remainingFees > 0) {
+            juryPool.fundJuryReserves{value: remainingFees}();
+        }
+        // verdictRendered[_petitionId] = block.timestamp;
+        uint256 majorityVotes;
+        (petition.petitionGranted) ? majorityVotes = _votesFor : majorityVotes = _votesAgainst;
+        emit VerdictReached(_petitionId, petition.petitionGranted, majorityVotes);
+    }
+
     /////////////////////////
     ///   JUROR ACTIONS   ///
     /////////////////////////
@@ -361,10 +412,29 @@ contract Court is VRFConsumerBaseV2 {
         }
         if(!isJuror) revert Court__InvalidJuror();
         commits[msg.sender][_petitionId] = _commit;
+        emit VoteCommitted(_petitionId, msg.sender, _commit);
         if(voteCount + 1 >= jurorsNeeded(_petitionId)) {
             _allVotesCommitted(_petitionId);
         }
-        emit VoteCommitted(_petitionId, msg.sender, _commit);
+    }
+
+    function revealVote(uint256 _petitionId, bool _vote, string calldata _salt) external {
+        if(!isConfirmedJuror(_petitionId, msg.sender)) revert Court__InvalidJuror();
+        if(getPetition(_petitionId).phase != Phase.Ruling) revert Court__CannotRevealBeforeAllVotesCommitted();
+        if(hasRevealedVote(msg.sender, _petitionId)) revert Court__AlreadyRevealed();
+        bytes32 reveal = keccak256(abi.encodePacked(_vote, _salt));
+        if(reveal != getCommit(msg.sender, _petitionId)) revert Court__RevealDoesNotMatchCommit();
+        votes[msg.sender][_petitionId] = _vote;
+        hasRevealed[msg.sender][_petitionId] = true;
+        uint256 stakeRefund = jurorStakes[msg.sender][_petitionId];
+        jurorStakes[msg.sender][_petitionId] -= stakeRefund;
+        (bool success,) = msg.sender.call{value: stakeRefund}("");
+        if(!success) revert Court__TransferFailed();
+        emit VoteRevealed(_petitionId, msg.sender, _vote);
+        (uint256 votesFor, uint256 votesAgainst) = _countVotes(_petitionId);
+        if(votesFor + votesAgainst == jurorsNeeded(_petitionId)) {
+            _renderVerdict(_petitionId, votesFor, votesAgainst);
+        }
     }
 
     //////////////////////
@@ -397,12 +467,25 @@ contract Court is VRFConsumerBaseV2 {
         return juries[_petitionId];
     }
 
+    function isConfirmedJuror(uint256 petitionId, address juror) public view returns (bool) {
+        Jury memory jury = getJury(petitionId);
+        bool isJuror;
+        for(uint i; i < jury.confirmedJurors.length; ++i) {
+            if(juror == jury.confirmedJurors[i]) isJuror = true;
+        }
+        return isJuror;
+    }
+
     function getJurorStakeHeld(address _juror, uint256 _petitionId) public view returns (uint256) {
         return jurorStakes[_juror][_petitionId];
     }
 
     function getCommit(address _juror, uint256 _petitionId) public view returns (bytes32) {
         return commits[_juror][_petitionId];
+    }
+
+    function hasRevealedVote(address juror, uint256 petitionId) public view returns (bool) {
+        return hasRevealed[juror][petitionId];
     }
 
 }

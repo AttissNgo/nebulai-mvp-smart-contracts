@@ -17,6 +17,7 @@ interface IJuryPool {
         uint8 majorityPercentage;
     }
 
+    function fundJuryReserves() external payable;
     function getJuror(uint256 _index) external view returns (Juror memory);
     function juryPoolSize() external view returns (uint256);
     function getJurorStatus(address _juror) external view returns (JurorStatus);
