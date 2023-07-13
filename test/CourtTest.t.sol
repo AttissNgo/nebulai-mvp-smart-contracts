@@ -212,6 +212,10 @@ contract CourtTest is Test, TestSetup {
         court.revealVote(p.petitionId, juror2_vote, "someSalt");
     } 
 
+    ////////////////////
+    ///   PETITION   ///
+    ////////////////////
+
     function test_createPetition() public {
         Court.Petition memory p = court.getPetition(petitionId_MATIC);
         assertEq(p.petitionId, petitionId_MATIC);
@@ -247,7 +251,6 @@ contract CourtTest is Test, TestSetup {
         assertEq(p.feePaidPlaintiff, true);
         assertEq(p.evidence[0], evidence1[0]);
         assertEq(p.evidence[1], evidence1[1]);
-        
     }
 
     function test_payArbitrationFee_automaticJurySelection() public {
@@ -317,6 +320,44 @@ contract CourtTest is Test, TestSetup {
     //     // wrong phase
 
     // }
+
+    function test_reclaimArbitrationFee() public {
+        vm.pauseGasMetering();
+        _petitionWithRevealedVotes(petitionId_MATIC);
+        vm.resumeGasMetering();
+        Court.Petition memory p = court.getPetition(petitionId_MATIC);
+        assertEq(p.petitionGranted, true);
+        uint256 feesHeldBefore = court.getFeesHeld(p.petitionId);
+        uint256 plaintiffBalBefore = p.plaintiff.balance;
+        assertEq(feesHeldBefore, p.arbitrationFee);
+        vm.expectEmit(true, true, false, true);
+        emit ArbitrationFeeReclaimed(p.petitionId, p.plaintiff, feesHeldBefore);
+        vm.prank(p.plaintiff);
+        court.reclaimArbitrationFee(p.petitionId);
+        assertEq(court.getFeesHeld(p.petitionId), 0);
+        assertEq(p.plaintiff.balance, plaintiffBalBefore + feesHeldBefore);
+    }
+
+    function test_reclaimArbitrationFee_revert() public {
+        vm.pauseGasMetering();
+        _petitionWithRevealedVotes(petitionId_MATIC);
+        vm.resumeGasMetering();
+        Court.Petition memory p = court.getPetition(petitionId_MATIC);
+        // not prevailing party 
+        assertEq(p.petitionGranted, true);
+        vm.expectRevert(Court.Court__OnlyPrevailingParty.selector);
+        vm.prank(p.defendant);
+        court.reclaimArbitrationFee(p.petitionId);
+        // already reclaimed
+        vm.prank(p.plaintiff);
+        court.reclaimArbitrationFee(p.petitionId);
+        vm.expectRevert(Court.Court__ArbitrationFeeAlreadyReclaimed.selector);
+        vm.prank(p.plaintiff);
+        court.reclaimArbitrationFee(p.petitionId);
+        // wrong phase 
+        vm.expectRevert(Court.Court__ArbitrationFeeCannotBeReclaimed.selector);
+        court.reclaimArbitrationFee(petitionId_ERC20);
+    }
 
     ////////////////
     ///   JURY   ///
@@ -613,43 +654,7 @@ contract CourtTest is Test, TestSetup {
         court.claimJurorFees();
     }
 
-    function test_reclaimArbitrationFee() public {
-        vm.pauseGasMetering();
-        _petitionWithRevealedVotes(petitionId_MATIC);
-        vm.resumeGasMetering();
-        Court.Petition memory p = court.getPetition(petitionId_MATIC);
-        assertEq(p.petitionGranted, true);
-        uint256 feesHeldBefore = court.getFeesHeld(p.petitionId);
-        uint256 plaintiffBalBefore = p.plaintiff.balance;
-        assertEq(feesHeldBefore, p.arbitrationFee);
-        vm.expectEmit(true, true, false, true);
-        emit ArbitrationFeeReclaimed(p.petitionId, p.plaintiff, feesHeldBefore);
-        vm.prank(p.plaintiff);
-        court.reclaimArbitrationFee(p.petitionId);
-        assertEq(court.getFeesHeld(p.petitionId), 0);
-        assertEq(p.plaintiff.balance, plaintiffBalBefore + feesHeldBefore);
-    }
-
-    function test_reclaimArbitrationFee_revert() public {
-        vm.pauseGasMetering();
-        _petitionWithRevealedVotes(petitionId_MATIC);
-        vm.resumeGasMetering();
-        Court.Petition memory p = court.getPetition(petitionId_MATIC);
-        // not prevailing party 
-        assertEq(p.petitionGranted, true);
-        vm.expectRevert(Court.Court__OnlyPrevailingParty.selector);
-        vm.prank(p.defendant);
-        court.reclaimArbitrationFee(p.petitionId);
-        // already reclaimed
-        vm.prank(p.plaintiff);
-        court.reclaimArbitrationFee(p.petitionId);
-        vm.expectRevert(Court.Court__ArbitrationFeeAlreadyReclaimed.selector);
-        vm.prank(p.plaintiff);
-        court.reclaimArbitrationFee(p.petitionId);
-        // wrong phase 
-        vm.expectRevert(Court.Court__ArbitrationFeeCannotBeReclaimed.selector);
-        court.reclaimArbitrationFee(petitionId_ERC20);
-    }
+    
 
     ///////////////////////////////
     ///   GOVERNANCE & CONFIG   ///

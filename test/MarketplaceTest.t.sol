@@ -411,6 +411,10 @@ contract MarketplaceTest is Test, TestSetup {
         marketplace.delinquentPayment(p.projectId);
     }
 
+    /////////////////////////////////
+    ///  DISPUTES & ARBITRATION   ///
+    /////////////////////////////////
+
     function test_disputeProject() public {
         Marketplace.Project memory p = marketplace.getProject(testProjectId_MATIC);
         vm.prank(provider);
@@ -439,8 +443,9 @@ contract MarketplaceTest is Test, TestSetup {
         assertEq(marketplace.getArbitrationPetitionId(p.projectId), petitionId);
         // change order has been reset to default
         assertEq(marketplace.activeChangeOrder(p.projectId), false);
-        
     }
+
+    // function test_appealRuling() public {}
 
     //////////////////////////////
     ///   CHANGE ORDER TESTS   ///

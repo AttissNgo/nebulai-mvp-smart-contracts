@@ -107,6 +107,7 @@ contract Marketplace {
     event ProjectApproved(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectChallenged(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectDisputed(uint256 indexed projectId, address indexed buyer, address indexed provider, uint256 petitionId);
+    event ProjectAppealed(uint256 indexed projectId, uint256 indexed petitionId, address appealedBy);
     event DelinquentPayment(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ChangeOrderProposed(uint256 indexed projectId);
     event ChangeOrderApproved(uint256 indexed projectId, address indexed buyer, address indexed provider);
@@ -135,7 +136,6 @@ contract Marketplace {
     error Marketplace__ProjectIsNotOverdue();
     error Marketplace__ProjectReviewPeriodEnded();
     error Marketplace__PaymentIsNotDelinquent();
-    error Marketplace__ProjectCannotBeDisputed();
     // change orders
     error Marketplace__ChangeOrderCannotBeProposed();
     error Marketplace__ChangeOrderAlreadyExists();
@@ -146,6 +146,10 @@ contract Marketplace {
     error Marketplace__AlreadyApprovedChangeOrder();
     error Marketplace__ChangeOrderPeriodStillActive();
     // arbitration
+    error Marketplace__ProjectCannotBeDisputed();
+    error Marketplace__ProjectIsNotDisputed();
+    error Marketplace__CourtHasNotRuled();
+    error Marketplace__AppealPeriodOver();
 
     modifier onlyUser() {
         if(!WHITELIST.isApproved(msg.sender)) revert Marketplace__OnlyUser();
@@ -347,6 +351,10 @@ contract Marketplace {
         emit DelinquentPayment(_projectId, p.buyer, p.provider); 
     }
 
+    ///////////////////////
+    ///   ARBITRATION   ///
+    ///////////////////////
+
     function disputeProject(
         uint256 _projectId,
         uint256 _adjustedProjectFee,
@@ -377,6 +385,20 @@ contract Marketplace {
         );
         arbitrationCases[_projectId] = petitionId;
         emit ProjectDisputed(p.projectId, p.buyer, p.provider, petitionId);
+        return petitionId;
+    }
+
+    function appealRuling(uint256 _projectId) external returns (uint256) {
+        Project storage p = projects[_projectId];
+        if(msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
+        if(p.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
+        ICourt.Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
+        if(petition.phase != ICourt.Phase.Verdict) revert Marketplace__CourtHasNotRuled();
+        if(block.timestamp >= petition.verdictRenderedDate + APPEAL_PERIOD) revert Marketplace__AppealPeriodOver();
+        p.status = Status.Appealed;
+        uint256 petitionId = COURT.appeal(_projectId);
+        arbitrationCases[_projectId] = petitionId;
+        emit ProjectAppealed(_projectId, petitionId, msg.sender);
         return petitionId;
     }
 

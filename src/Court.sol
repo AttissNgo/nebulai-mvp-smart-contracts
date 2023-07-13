@@ -85,6 +85,7 @@ contract Court is VRFConsumerBaseV2 {
 
     event MarketplaceRegistered(address marketplace);
     event PetitionCreated(uint256 indexed petitionId, address marketplace, uint256 projectId);
+    event AppealCreated(uint256 indexed petitionId, uint256 indexed originalPetitionId, address marketplace, uint256 projectId);
     event ArbitrationFeePaid(uint256 indexed petitionId, address indexed user);
     event JurySelectionInitiated(uint256 indexed petitionId, uint256 requestId);
     event JuryDrawn(uint256 indexed petitionId, bool isRedraw);
@@ -102,6 +103,7 @@ contract Court is VRFConsumerBaseV2 {
     error Court__OnlyMarketplace();
     error Court__ProjectHasOpenPetition();
     error Court__OnlyLitigant();
+    error Court__InvalidMarketplace();
     // config 
     error Court__MarketplaceAlreadyRegistered();
     // petition
@@ -112,6 +114,8 @@ contract Court is VRFConsumerBaseV2 {
     error Court__ArbitrationFeeCannotBeReclaimed();
     error Court__OnlyPrevailingParty();
     error Court__ArbitrationFeeAlreadyReclaimed();
+    error Court__PetitionDoesNotExist();
+    error Court__RulingCannotBeAppealed();
     // juror actions
     error Court__JurorSeatsFilled();
     error Court__InvalidJuror();
@@ -255,6 +259,31 @@ contract Court is VRFConsumerBaseV2 {
         petition.discoveryStart = block.timestamp;
         petitions[petitionId] = petition;
         emit PetitionCreated(petitionId, msg.sender, _projectId);
+        return petitionId;
+    }
+
+    function appeal(uint256 _projectId) external onlyMarketplace returns (uint256) {
+        uint256 originalPetitionId = IMarketplace(msg.sender).getArbitrationPetitionId(_projectId); 
+        if(originalPetitionId == 0) revert Court__PetitionDoesNotExist();
+        Petition memory originalPetition = getPetition(originalPetitionId);
+        // if(originalPetition.petitionId == 0) revert Court__PetitionDoesNotExist();
+        if(msg.sender != originalPetition.marketplace) revert Court__InvalidMarketplace();
+        if(originalPetition.isAppeal) revert Court__RulingCannotBeAppealed();
+        petitionIds.increment(); 
+        uint256 petitionId = petitionIds.current();
+        Petition memory petition;
+        petition.petitionId = petitionId;
+        petition.marketplace = msg.sender;
+        petition.projectId = _projectId;
+        petition.adjustedProjectFee = originalPetition.adjustedProjectFee;
+        petition.providerStakeForfeit = originalPetition.providerStakeForfeit;
+        petition.plaintiff = originalPetition.plaintiff;
+        petition.defendant = originalPetition.defendant;
+        petition.arbitrationFee = calculateArbitrationFee(true);
+        petition.isAppeal = true;
+        petition.discoveryStart = block.timestamp;
+        petitions[petitionId] = petition;
+        emit AppealCreated(petitionId, originalPetitionId, msg.sender, _projectId);
         return petitionId;
     }
 
