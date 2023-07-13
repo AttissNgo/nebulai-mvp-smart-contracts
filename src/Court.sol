@@ -94,6 +94,8 @@ contract Court is VRFConsumerBaseV2 {
     event RulingInitiated(uint256 indexed petitionId);
     event VoteRevealed(uint256 indexed petitionId, address indexed juror, bool vote);
     event VerdictReached(uint256 indexed petitionId, bool verdict, uint256 majorityVotes);
+    event JurorFeesClaimed(address indexed juror, uint256 amount);
+    event ArbitrationFeeReclaimed(uint256 indexed petitionId, address indexed claimedBy, uint256 amount);
     
     // permissions
     error Court__OnlyGovernor();
@@ -107,6 +109,9 @@ contract Court is VRFConsumerBaseV2 {
     error Court__ArbitrationFeeNotPaid();
     error Court__InsufficientAmount();
     error Court__EvidenceCanNoLongerBeSubmitted();
+    error Court__ArbitrationFeeCannotBeReclaimed();
+    error Court__OnlyPrevailingParty();
+    error Court__ArbitrationFeeAlreadyReclaimed();
     // juror actions
     error Court__JurorSeatsFilled();
     error Court__InvalidJuror();
@@ -118,6 +123,8 @@ contract Court is VRFConsumerBaseV2 {
     error Court__CannotRevealBeforeAllVotesCommitted();
     error Court__AlreadyRevealed();
     error Court__RevealDoesNotMatchCommit();
+    error Court__VoteHasNotBeenRevealed();
+    error Court__NoJurorFeesOwed();
 
     error Court__TransferFailed();
 
@@ -289,6 +296,19 @@ contract Court is VRFConsumerBaseV2 {
         }
     }
 
+    function reclaimArbitrationFee(uint256 _petitionId) external {
+        Petition memory petition = getPetition(_petitionId);
+        if(petition.phase != Phase.Verdict) revert Court__ArbitrationFeeCannotBeReclaimed();
+        if(petition.petitionGranted && msg.sender != petition.plaintiff) revert Court__OnlyPrevailingParty();
+        else if(!petition.petitionGranted && msg.sender != petition.defendant) revert Court__OnlyPrevailingParty();
+        if(feesHeld[_petitionId] != petition.arbitrationFee) revert Court__ArbitrationFeeAlreadyReclaimed();
+        uint256 reclaimAmount = feesHeld[_petitionId];
+        feesHeld[_petitionId] = 0;
+        (bool success, ) = msg.sender.call{value: reclaimAmount}("");
+        if(!success) revert Court__TransferFailed();
+        emit ArbitrationFeeReclaimed(_petitionId, msg.sender, reclaimAmount);
+    }
+
     ////////////////
     ///   JURY   ///
     ////////////////
@@ -437,6 +457,15 @@ contract Court is VRFConsumerBaseV2 {
         }
     }
 
+    function claimJurorFees() external {
+        uint256 feesOwed = feesToJuror[msg.sender];
+        if(feesOwed < 1) revert Court__NoJurorFeesOwed();
+        feesToJuror[msg.sender] = 0;
+        (bool success,) = msg.sender.call{value: feesOwed}("");
+        if(!success) revert Court__TransferFailed();
+        emit JurorFeesClaimed(msg.sender, feesOwed);
+    }
+
     //////////////////////
     ///   GOVERNANCE   ///
     //////////////////////
@@ -457,6 +486,10 @@ contract Court is VRFConsumerBaseV2 {
 
     function getPetition(uint256 _petitionId) public view returns (Petition memory) {
         return petitions[_petitionId];
+    }
+
+    function getFeesHeld(uint256 petitionId) public view returns (uint256) {
+        return feesHeld[petitionId];
     }
 
     function isRegisteredMarketplace(address _marketplace) public view returns (bool) {
@@ -486,6 +519,15 @@ contract Court is VRFConsumerBaseV2 {
 
     function hasRevealedVote(address juror, uint256 petitionId) public view returns (bool) {
         return hasRevealed[juror][petitionId];
+    }
+
+    function getVote(address juror, uint256 petitionId) public view returns (bool) {
+        if(!hasRevealedVote(juror, petitionId)) revert Court__VoteHasNotBeenRevealed();
+        return votes[juror][petitionId];
+    }
+
+    function getJurorFeesOwed(address juror) public view returns (uint256) {
+        return feesToJuror[juror];
     }
 
 }
