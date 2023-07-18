@@ -76,21 +76,27 @@ contract TestSetup is Test {
     address[] public users = [alice,bob,carlos,david,erin,frank,grace,heidi,ivan,judy,kim,laura,mike,niaj,olivia,patricia,quentin,russel,sean,tabitha,ulrich,vincent,winona,xerxes,yanni,zorro];
 
     function _setUp() internal {
+        vm.startPrank(admin1);
         // deploy contracts
         usdt = new USDTMock(); 
         vrf = new VRFCoordinatorV2Mock(1, 1); 
-        vm.prank(admin1);
+        // vm.prank(admin1);
         subscriptionId = vrf.createSubscription();
         vrf.fundSubscription(subscriptionId, 100 ether);
         governor = new Governor(admins, sigsRequired);
         treasury = new Treasury(address(governor));
         whitelist = new Whitelist(address(governor));
         juryPool = new JuryPool(address(governor), address(whitelist));
+
+        uint64 nonce = vm.getNonce(admin1);
+        address predictedMarketplace = computeCreateAddress(admin1, nonce + 2);
+
         court = new Court(
             address(governor), 
             address(juryPool),
             address(vrf),
-            subscriptionId
+            subscriptionId,
+            predictedMarketplace ////////////////
         );
         approvedTokens.push(address(usdt));
         escrowFactory = new EscrowFactory();
@@ -101,11 +107,13 @@ contract TestSetup is Test {
             address(escrowFactory),
             approvedTokens
         );
+        // emit log_address(address(marketplace));
         // register new marketplace address in court
-        vm.prank(admin1);
-        bytes memory data = abi.encodeWithSignature("registerMarketplace(address)", address(marketplace));
-        uint256 txIndex = governor.proposeTransaction(address(court), 0, data);
-        util_executeGovernorTx(txIndex);
+        // vm.prank(admin1);
+        // bytes memory data = abi.encodeWithSignature("registerMarketplace(address)", address(marketplace));
+        // uint256 txIndex = governor.proposeTransaction(address(court), 0, data);
+        vm.stopPrank();
+        // util_executeGovernorTx(txIndex);
 
         // fund treasury with USDT and MATIC
         vm.deal(address(treasury), initialTreasuryBalanceMATIC);

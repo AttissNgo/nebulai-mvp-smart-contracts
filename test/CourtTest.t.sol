@@ -359,6 +359,10 @@ contract CourtTest is Test, TestSetup {
         court.reclaimArbitrationFee(petitionId_ERC20);
     }
 
+    function test_appeal() public {
+        
+    }
+
     ////////////////
     ///   JURY   ///
     ////////////////

@@ -23,6 +23,10 @@ contract MarketplaceTest is Test, TestSetup {
     uint256 changeOrderAdjustedProjectFee = 750 ether;
     string changeOrderDetailsURI = "ipfs://changeOrderUri";
 
+    // test arbitration
+    string[] evidence1 = ["someEvidenceURI", "someOtherEvidenceURI"];
+    string[] evidence2 = ["someEvidenceURI2", "someOtherEvidenceURI2"];
+
     event ProjectCreated(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectCancelled(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectActivated(uint256 indexed projectId, address indexed buyer, address indexed provider);
@@ -42,6 +46,69 @@ contract MarketplaceTest is Test, TestSetup {
         dueDate = block.timestamp + 30 days;
         testProjectId_MATIC = _createProject();
         testProjectId_ERC20 = _createProjectERC20();
+    }
+
+    function _disputedProjectWithRuling(uint256 _projectId) public {
+        Marketplace.Project memory p = marketplace.getProject(_projectId);
+        if(p.paymentToken != address(0)) {
+            vm.prank(p.provider);
+            usdt.approve(address(marketplace), p.providerStake);
+            vm.prank(p.provider);
+            marketplace.activateProject(p.projectId);
+        } else {
+            vm.prank(provider);
+            marketplace.activateProject{value: p.providerStake}(p.projectId);
+        }
+        vm.prank(provider);
+        marketplace.completeProject(p.projectId);
+        vm.prank(buyer);
+        marketplace.challengeProject(
+            p.projectId,
+            changeOrderAdjustedProjectFee,
+            p.providerStake,
+            changeOrderDetailsURI
+        );
+        // change order period passes
+        vm.warp(block.timestamp + marketplace.CHANGE_ORDER_PERIOD() + 1);
+        // buyer disputes
+        vm.prank(buyer);
+        uint256 petitionId = marketplace.disputeProject(
+            p.projectId,
+            changeOrderAdjustedProjectFee,
+            p.providerStake
+        );
+        // jury assembles and votes 
+        Court.Petition memory petition = court.getPetition(petitionId);
+        vm.prank(petition.plaintiff);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petitionId, evidence1);
+        vm.recordLogs();
+        vm.prank(petition.defendant);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petitionId, evidence2);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        uint256 requestId = uint(bytes32(entries[2].data));
+        vrf.fulfillRandomWords(requestId, address(court));
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+        uint256 jurorStake = court.jurorFlatFee();
+        for(uint i; i < court.jurorsNeeded(petition.petitionId); ++i) {
+            vm.prank(jury.drawnJurors[i]);
+            court.acceptCase{value: jurorStake}(petition.petitionId);
+        }
+        jury = court.getJury(petition.petitionId);
+        bytes32 commit = keccak256(abi.encodePacked(true, "someSalt"));
+        vm.prank(jury.confirmedJurors[0]);
+        court.commitVote(petition.petitionId, commit);
+        commit = keccak256(abi.encodePacked(false, "someSalt"));
+        vm.prank(jury.confirmedJurors[1]);
+        court.commitVote(petition.petitionId, commit);
+        commit = keccak256(abi.encodePacked(true, "someSalt"));
+        vm.prank(jury.confirmedJurors[2]);
+        court.commitVote(petition.petitionId, commit);
+        vm.prank(jury.confirmedJurors[0]);
+        court.revealVote(petition.petitionId, true, "someSalt");
+        vm.prank(jury.confirmedJurors[1]);
+        court.revealVote(petition.petitionId, false, "someSalt");
+        vm.prank(jury.confirmedJurors[2]);
+        court.revealVote(petition.petitionId, true, "someSalt");
     }
 
     function _createProject() public returns (uint256) {
@@ -445,7 +512,13 @@ contract MarketplaceTest is Test, TestSetup {
         assertEq(marketplace.activeChangeOrder(p.projectId), false);
     }
 
-    // function test_appealRuling() public {}
+    function test_appealRuling() public {
+        vm.pauseGasMetering();
+        _disputedProjectWithRuling(testProjectId_ERC20);
+        vm.resumeGasMetering();
+    }
+
+
 
     //////////////////////////////
     ///   CHANGE ORDER TESTS   ///
