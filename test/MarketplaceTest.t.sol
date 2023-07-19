@@ -38,6 +38,8 @@ contract MarketplaceTest is Test, TestSetup {
     event DelinquentPayment(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ChangeOrderApproved(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ChangeOrderRetracted(uint256 indexed projectId, address indexed retractedBy);
+    event ProjectAppealed(uint256 indexed projectId, uint256 indexed petitionId, address appealedBy);
+    event ResolvedByCourtOrder(uint256 indexed projectId, uint256 indexed petitionId);
 
     function setUp() public {
         _setUp();
@@ -48,7 +50,7 @@ contract MarketplaceTest is Test, TestSetup {
         testProjectId_ERC20 = _createProjectERC20();
     }
 
-    function _disputedProjectWithRuling(uint256 _projectId) public {
+    function _disputedProject(uint256 _projectId) public returns (uint256) {
         Marketplace.Project memory p = marketplace.getProject(_projectId);
         if(p.paymentToken != address(0)) {
             vm.prank(p.provider);
@@ -77,6 +79,11 @@ contract MarketplaceTest is Test, TestSetup {
             changeOrderAdjustedProjectFee,
             p.providerStake
         );
+        return petitionId;
+    }
+
+    function _disputedProjectWithRuling(uint256 _projectId) public {
+        uint256 petitionId = _disputedProject(_projectId);
         // jury assembles and votes 
         Court.Petition memory petition = court.getPetition(petitionId);
         vm.prank(petition.plaintiff);
@@ -516,8 +523,116 @@ contract MarketplaceTest is Test, TestSetup {
         vm.pauseGasMetering();
         _disputedProjectWithRuling(testProjectId_ERC20);
         vm.resumeGasMetering();
+        Marketplace.Project memory p = marketplace.getProject(testProjectId_ERC20);
+        Court.Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(p.projectId));
+        assertEq(uint(p.status), uint(Marketplace.Status.Disputed));
+        assertEq(uint(petition.phase), uint(Court.Phase.Verdict));
+        assertEq(petition.isAppeal, false);
+        vm.expectEmit(true, false, false, false);
+        emit ProjectAppealed(p.projectId, 42, p.provider);
+        vm.prank(p.provider);
+        uint256 newPetitionId = marketplace.appealRuling(p.projectId);
+        // new petition has been created
+        Court.Petition memory appealPetition = court.getPetition(newPetitionId);
+        assertEq(appealPetition.isAppeal, true);
+        // project status updated
+        p = marketplace.getProject(p.projectId);
+        assertEq(uint(p.status), uint(Marketplace.Status.Appealed));
+        // project ID mapped to new petition ID
+        assertEq(marketplace.getArbitrationPetitionId(p.projectId), appealPetition.petitionId);
     }
 
+    function test_appealRuling_revert() public {
+        vm.pauseGasMetering();
+        _disputedProjectWithRuling(testProjectId_ERC20);
+        vm.resumeGasMetering();
+        Marketplace.Project memory p = marketplace.getProject(testProjectId_MATIC); // NOT the disputed project
+        // not disputed
+        vm.expectRevert(Marketplace.Marketplace__ProjectIsNotDisputed.selector);
+        vm.prank(p.provider);
+        marketplace.appealRuling(p.projectId);
+        // court has not ruled 
+        _disputedProject(testProjectId_MATIC); // NOT the disputed project)
+        vm.expectRevert(Marketplace.Marketplace__CourtHasNotRuled.selector);
+        vm.prank(p.provider);
+        marketplace.appealRuling(p.projectId);
+        // appeal period over
+        p = marketplace.getProject(testProjectId_ERC20); // WITH ruling
+        vm.warp(block.timestamp + marketplace.APPEAL_PERIOD() + 1); // warp ahead past appeal period
+        vm.expectRevert(Marketplace.Marketplace__AppealPeriodOver.selector);
+        vm.prank(p.provider);
+        marketplace.appealRuling(p.projectId);
+    }
+
+    function test_waiveAppeal() public {
+        vm.pauseGasMetering();
+        _disputedProjectWithRuling(testProjectId_MATIC);
+        vm.resumeGasMetering();
+        Marketplace.Project memory p = marketplace.getProject(testProjectId_MATIC);
+        Court.Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(p.projectId));
+        vm.expectEmit(true, true, false, false);
+        emit ResolvedByCourtOrder(p.projectId, petition.petitionId);
+        (petition.petitionGranted) ? vm.prank(petition.defendant) : vm.prank(petition.plaintiff); // prank non-prevailing party
+        marketplace.waiveAppeal(p.projectId);
+        p = marketplace.getProject(testProjectId_MATIC);
+        assertEq(uint(p.status), uint(Marketplace.Status.Resolved_CourtOrder));
+    }
+
+    function test_waiveAppeal_revert() public {
+        Marketplace.Project memory p = marketplace.getProject(testProjectId_MATIC);
+        // not disputed
+        vm.expectRevert(Marketplace.Marketplace__ProjectIsNotDisputed.selector);
+        vm.prank(p.provider);
+        marketplace.waiveAppeal(p.projectId);
+        // court has not ruled 
+        _disputedProject(testProjectId_MATIC);
+        p = marketplace.getProject(testProjectId_MATIC);
+        vm.expectRevert(Marketplace.Marketplace__CourtHasNotRuled.selector);
+        vm.prank(p.provider);
+        marketplace.waiveAppeal(p.projectId);
+        // not non-prevailing party
+        _disputedProjectWithRuling(testProjectId_ERC20);
+        p = marketplace.getProject(testProjectId_ERC20);
+        Court.Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(p.projectId));
+        vm.expectRevert(Marketplace.Marketplace__OnlyNonPrevailingParty.selector);
+        (petition.petitionGranted) ? vm.prank(petition.plaintiff) : vm.prank(petition.defendant); // prank prevailing party
+        marketplace.waiveAppeal(p.projectId);
+    }
+
+    function test_resolveByCourtOrder() public {
+        vm.pauseGasMetering();
+        _disputedProjectWithRuling(testProjectId_MATIC);
+        vm.resumeGasMetering();
+        Marketplace.Project memory p = marketplace.getProject(testProjectId_MATIC);
+        vm.warp(block.timestamp + marketplace.APPEAL_PERIOD() + 1); 
+        vm.expectEmit(true, true, false, false);
+        emit ResolvedByCourtOrder(p.projectId, marketplace.getArbitrationPetitionId(p.projectId));
+        vm.prank(p.buyer);
+        marketplace.resolveByCourtOrder(p.projectId);
+        p = marketplace.getProject(testProjectId_MATIC);
+        assertEq(uint(p.status), uint(Marketplace.Status.Resolved_CourtOrder));
+    }
+
+    function test_resolveByCourtOrder_revert() public {
+        // not disputed 
+        Marketplace.Project memory p = marketplace.getProject(testProjectId_MATIC);
+        // not disputed
+        vm.expectRevert(Marketplace.Marketplace__ProjectIsNotDisputed.selector);
+        vm.prank(p.buyer);
+        marketplace.resolveByCourtOrder(p.projectId);
+        // court has not ruled 
+        _disputedProject(testProjectId_MATIC);
+        p = marketplace.getProject(testProjectId_MATIC);
+        vm.expectRevert(Marketplace.Marketplace__CourtHasNotRuled.selector);
+        vm.prank(p.buyer);
+        marketplace.resolveByCourtOrder(p.projectId);
+        // appeal period not over
+        _disputedProjectWithRuling(testProjectId_ERC20);
+        p = marketplace.getProject(testProjectId_ERC20);
+        vm.expectRevert(Marketplace.Marketplace__AppealPeriodNotOver.selector);
+        vm.prank(p.buyer);
+        marketplace.resolveByCourtOrder(p.projectId);
+    }
 
 
     //////////////////////////////

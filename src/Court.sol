@@ -97,6 +97,7 @@ contract Court is VRFConsumerBaseV2 {
     event VerdictReached(uint256 indexed petitionId, bool verdict, uint256 majorityVotes);
     event JurorFeesClaimed(address indexed juror, uint256 amount);
     event ArbitrationFeeReclaimed(uint256 indexed petitionId, address indexed claimedBy, uint256 amount);
+    event CaseDismissed(uint256 indexed petitionId);
     
     // permissions
     error Court__OnlyGovernor();
@@ -116,6 +117,7 @@ contract Court is VRFConsumerBaseV2 {
     error Court__ArbitrationFeeAlreadyReclaimed();
     error Court__PetitionDoesNotExist();
     error Court__RulingCannotBeAppealed();
+    error Court__FeesNotOverdue();
     // juror actions
     error Court__JurorSeatsFilled();
     error Court__InvalidJuror();
@@ -351,6 +353,15 @@ contract Court is VRFConsumerBaseV2 {
         if(!success) revert Court__TransferFailed();
         emit ArbitrationFeeReclaimed(_petitionId, msg.sender, reclaimAmount);
     }
+
+    function dismissUnpaidCase(uint256 _petitionId) public {
+        Petition storage petition = petitions[_petitionId];
+        if(petition.petitionId == 0) revert Court__PetitionDoesNotExist();
+        if(block.timestamp < petition.discoveryStart + DISCOVERY_PERIOD) revert Court__FeesNotOverdue();
+        if(petition.feePaidPlaintiff || petition.feePaidDefendant) revert Court__ArbitrationFeeAlreadyPaid();
+        petition.phase = Phase.Dismissed;
+        emit CaseDismissed(_petitionId);
+    } 
 
     ////////////////
     ///   JURY   ///

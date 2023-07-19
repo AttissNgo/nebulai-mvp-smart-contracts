@@ -37,6 +37,7 @@ contract CourtTest is Test, TestSetup {
     event VoteRevealed(uint256 indexed petitionId, address indexed juror, bool vote);
     event JurorFeesClaimed(address indexed juror, uint256 amount);
     event ArbitrationFeeReclaimed(uint256 indexed petitionId, address indexed claimedBy, uint256 amount);
+    event CaseDismissed(uint256 indexed petitionId);
 
     function setUp() public {
         _setUp();
@@ -359,8 +360,18 @@ contract CourtTest is Test, TestSetup {
         court.reclaimArbitrationFee(petitionId_ERC20);
     }
 
-    function test_appeal() public {
+    // function test_appeal() public {
         
+    // }
+
+    function test_dismissUnpaidCase() public {
+        Court.Petition memory p = court.getPetition(petitionId_MATIC);
+        vm.warp(block.timestamp + p.discoveryStart + court.DISCOVERY_PERIOD() + 1);
+        vm.expectEmit(true, false, false, false);
+        emit CaseDismissed(p.petitionId);
+        court.dismissUnpaidCase(p.petitionId);
+        p = court.getPetition(petitionId_MATIC);
+        assertEq(uint(p.phase), uint(Court.Phase.Dismissed));
     }
 
     ////////////////

@@ -112,6 +112,7 @@ contract Marketplace {
     event ChangeOrderProposed(uint256 indexed projectId);
     event ChangeOrderApproved(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ChangeOrderRetracted(uint256 indexed projectId, address indexed retractedBy);
+    event ResolvedByCourtOrder(uint256 indexed projectId, uint256 indexed petitionId);
 
     // transfers
     error Marketplace__TransferFailed();
@@ -150,7 +151,9 @@ contract Marketplace {
     error Marketplace__ProjectIsNotDisputed();
     error Marketplace__CourtHasNotRuled();
     error Marketplace__AppealPeriodOver();
-
+    error Marketplace__AppealPeriodNotOver();
+    error Marketplace__OnlyNonPrevailingParty();
+    
     modifier onlyUser() {
         if(!WHITELIST.isApproved(msg.sender)) revert Marketplace__OnlyUser();
         _;
@@ -400,6 +403,33 @@ contract Marketplace {
         arbitrationCases[_projectId] = petitionId;
         emit ProjectAppealed(_projectId, petitionId, msg.sender);
         return petitionId;
+    }
+
+    function waiveAppeal(uint256 _projectId) external {
+        Project storage project = projects[_projectId];
+        if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
+        ICourt.Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
+        if(petition.phase != ICourt.Phase.Verdict) revert Marketplace__CourtHasNotRuled();
+        if(petition.petitionGranted) {
+            if(msg.sender != petition.defendant) revert Marketplace__OnlyNonPrevailingParty();
+        } else {
+            if(msg.sender != petition.plaintiff) revert Marketplace__OnlyNonPrevailingParty();
+        }
+        project.status = Status.Resolved_CourtOrder;
+        emit ResolvedByCourtOrder(project.projectId, petition.petitionId);
+    }
+
+    function resolveByCourtOrder(uint256 _projectId) public {
+        Project storage project = projects[_projectId];
+        if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
+        if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
+        ICourt.Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
+        if(petition.phase != ICourt.Phase.Verdict && petition.phase != ICourt.Phase.DefaultJudgement) {
+            revert Marketplace__CourtHasNotRuled();
+        }
+        if(block.timestamp < petition.verdictRenderedDate + APPEAL_PERIOD) revert Marketplace__AppealPeriodNotOver();
+        project.status = Status.Resolved_CourtOrder;
+        emit ResolvedByCourtOrder(_projectId, petition.petitionId);
     }
 
     ////////////////////////

@@ -88,9 +88,9 @@ contract GovernorTest is Test, TestSetup {
     function test_proposeTransaction() public returns (uint256) {
         vm.prank(admin1);
         vm.expectEmit(false, false, false, true);
-        emit TransactionProposed(1, alice, dummyValue1, dummyData1, admin1);
+        emit TransactionProposed(0, alice, dummyValue1, dummyData1, admin1);
         vm.expectEmit(false, false, false, true);
-        emit TransactionSigned(1, admin1, 1);
+        emit TransactionSigned(0, admin1, 1);
         uint256 txIndex = governor.proposeTransaction(
             alice,
             dummyValue1,
@@ -111,7 +111,7 @@ contract GovernorTest is Test, TestSetup {
     function test_signTransaction() public returns (uint256){
         uint256 txIndex = test_proposeTransaction();
         vm.expectEmit(false, false, false, true);
-        emit TransactionSigned(1, admin2, 2);
+        emit TransactionSigned(0, admin2, 2);
         vm.prank(admin2);
         governor.signTransaction(txIndex);
         Governor.Transaction memory t = governor.getTransaction(txIndex);
