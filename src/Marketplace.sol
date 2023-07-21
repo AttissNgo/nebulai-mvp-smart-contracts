@@ -113,6 +113,7 @@ contract Marketplace {
     event ChangeOrderApproved(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ChangeOrderRetracted(uint256 indexed projectId, address indexed retractedBy);
     event ResolvedByCourtOrder(uint256 indexed projectId, uint256 indexed petitionId);
+    event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed petitionId);
 
     // transfers
     error Marketplace__TransferFailed();
@@ -153,6 +154,7 @@ contract Marketplace {
     error Marketplace__AppealPeriodOver();
     error Marketplace__AppealPeriodNotOver();
     error Marketplace__OnlyNonPrevailingParty();
+    error Marketplace__CourtHasNotDismissedCase();
     
     modifier onlyUser() {
         if(!WHITELIST.isApproved(msg.sender)) revert Marketplace__OnlyUser();
@@ -432,6 +434,16 @@ contract Marketplace {
         emit ResolvedByCourtOrder(_projectId, petition.petitionId);
     }
 
+    function resolveDismissedCase(uint256 _projectId) public {
+        Project storage project = projects[_projectId];
+        if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
+        if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
+        ICourt.Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
+        if(petition.phase != ICourt.Phase.Dismissed) revert Marketplace__CourtHasNotDismissedCase();
+        project.status = Status.Resolved_ArbitrationDismissed;
+        emit ResolvedByDismissedCase(_projectId, petition.petitionId);
+    }
+
     ////////////////////////
     ///   CHANGE ORDER   ///
     ////////////////////////
@@ -556,6 +568,10 @@ contract Marketplace {
     function getProject(uint256 _projectId) public view returns (Project memory) {
         // check if exists
         return projects[_projectId];
+    }
+
+    function isDisputed(uint256 _projectId) public view returns (bool) {
+        return projects[_projectId].status == Status.Disputed;
     }
 
     function getTxFeesHeld(uint256 _projectId) public view returns (uint256) {

@@ -118,6 +118,7 @@ contract Court is VRFConsumerBaseV2 {
     error Court__PetitionDoesNotExist();
     error Court__RulingCannotBeAppealed();
     error Court__FeesNotOverdue();
+    error Court__ProjectIsNotDisputed();
     // juror actions
     error Court__JurorSeatsFilled();
     error Court__InvalidJuror();
@@ -215,15 +216,6 @@ contract Court is VRFConsumerBaseV2 {
         if(!isRedraw) petition.selectionStart = block.timestamp;
         emit JuryDrawn(petition.petitionId, isRedraw);   
     }
-
-    // function _isValidJuror(IJuryPool.Juror memory _juror, address _plaintiff, address _defendant) internal pure returns (bool) {
-    //     if(
-    //         _juror.jurorAddress == _plaintiff || 
-    //         _juror.jurorAddress == _defendant ||
-    //         _juror.jurorStatus != IJuryPool.JurorStatus.Active
-    //     ) return false;
-    //     else return true;
-    // }
 
     function _weightedDrawing(
         IJuryPool.Juror memory _jurorA, 
@@ -357,6 +349,7 @@ contract Court is VRFConsumerBaseV2 {
     function dismissUnpaidCase(uint256 _petitionId) public {
         Petition storage petition = petitions[_petitionId];
         if(petition.petitionId == 0) revert Court__PetitionDoesNotExist();
+        // if(!IMarketplace(petition.marketplace).isDisputed(petition.projectId)) revert Court__ProjectIsNotDisputed();
         if(block.timestamp < petition.discoveryStart + DISCOVERY_PERIOD) revert Court__FeesNotOverdue();
         if(petition.feePaidPlaintiff || petition.feePaidDefendant) revert Court__ArbitrationFeeAlreadyPaid();
         petition.phase = Phase.Dismissed;

@@ -40,6 +40,7 @@ contract MarketplaceTest is Test, TestSetup {
     event ChangeOrderRetracted(uint256 indexed projectId, address indexed retractedBy);
     event ProjectAppealed(uint256 indexed projectId, uint256 indexed petitionId, address appealedBy);
     event ResolvedByCourtOrder(uint256 indexed projectId, uint256 indexed petitionId);
+    event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed petitionId);
 
     function setUp() public {
         _setUp();
@@ -614,7 +615,6 @@ contract MarketplaceTest is Test, TestSetup {
     }
 
     function test_resolveByCourtOrder_revert() public {
-        // not disputed 
         Marketplace.Project memory p = marketplace.getProject(testProjectId_MATIC);
         // not disputed
         vm.expectRevert(Marketplace.Marketplace__ProjectIsNotDisputed.selector);
@@ -632,6 +632,40 @@ contract MarketplaceTest is Test, TestSetup {
         vm.expectRevert(Marketplace.Marketplace__AppealPeriodNotOver.selector);
         vm.prank(p.buyer);
         marketplace.resolveByCourtOrder(p.projectId);
+    }
+
+    function test_resolveDismissedCase() public {
+        vm.pauseGasMetering();
+        uint256 petitionId = _disputedProject(testProjectId_ERC20);
+        vm.resumeGasMetering();
+        vm.warp(block.timestamp + court.DISCOVERY_PERIOD() + 1);
+        court.dismissUnpaidCase(petitionId);
+        Marketplace.Project memory p = marketplace.getProject(testProjectId_ERC20);
+        vm.expectEmit(true, true, false, false);
+        emit ResolvedByDismissedCase(p.projectId, petitionId);
+        vm.prank(p.buyer);
+        marketplace.resolveDismissedCase(p.projectId);
+        p = marketplace.getProject(testProjectId_ERC20);
+        assertEq(uint(p.status), uint(Marketplace.Status.Resolved_ArbitrationDismissed));
+    }
+
+    function test_resolveDismissedCase_revert() public {
+        Marketplace.Project memory p = marketplace.getProject(testProjectId_ERC20);
+        // not disputed 
+        vm.expectRevert(Marketplace.Marketplace__ProjectIsNotDisputed.selector);
+        vm.prank(p.buyer);
+        marketplace.resolveDismissedCase(p.projectId);
+        // assertEq(marketplace.isDisputed(p.projectId), false);
+        // not dismissed case
+        _disputedProjectWithRuling(testProjectId_ERC20); 
+        p = marketplace.getProject(testProjectId_ERC20);
+        // assertEq(marketplace.isDisputed(p.projectId), true);
+        Court.Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(p.projectId));
+        assertFalse(uint(petition.phase) == uint(Court.Phase.Dismissed));
+        vm.expectRevert(Marketplace.Marketplace__CourtHasNotDismissedCase.selector);
+        vm.prank(p.buyer);
+        marketplace.resolveDismissedCase(p.projectId);
+
     }
 
 
