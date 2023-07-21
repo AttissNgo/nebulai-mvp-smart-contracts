@@ -114,6 +114,7 @@ contract Marketplace {
     event ChangeOrderRetracted(uint256 indexed projectId, address indexed retractedBy);
     event ResolvedByCourtOrder(uint256 indexed projectId, uint256 indexed petitionId);
     event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed petitionId);
+    event SettlementProposed(uint256 indexed projectId, uint256 indexed petitionId);
 
     // transfers
     error Marketplace__TransferFailed();
@@ -147,6 +148,7 @@ contract Marketplace {
     error Marketplace__ChangeOrderNotValid();
     error Marketplace__AlreadyApprovedChangeOrder();
     error Marketplace__ChangeOrderPeriodStillActive();
+    error Marketplace__InvalidSettlement();
     // arbitration
     error Marketplace__ProjectCannotBeDisputed();
     error Marketplace__ProjectIsNotDisputed();
@@ -155,6 +157,7 @@ contract Marketplace {
     error Marketplace__AppealPeriodNotOver();
     error Marketplace__OnlyNonPrevailingParty();
     error Marketplace__CourtHasNotDismissedCase();
+
     
     modifier onlyUser() {
         if(!WHITELIST.isApproved(msg.sender)) revert Marketplace__OnlyUser();
@@ -444,6 +447,25 @@ contract Marketplace {
         emit ResolvedByDismissedCase(_projectId, petition.petitionId);
     }
 
+    function proposeSettlement( 
+        uint256 _projectId,
+        uint256 _adjustedProjectFee,
+        uint256 _providerStakeForfeit,
+        string memory _settlementDetailsURI
+    ) 
+        external 
+    {
+        Project memory project = projects[_projectId];
+        if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
+        _proposeChangeOrder(
+            _projectId,
+            _adjustedProjectFee,
+            _providerStakeForfeit,
+            _settlementDetailsURI
+        );
+        emit SettlementProposed(_projectId, getArbitrationPetitionId(_projectId));
+    }
+
     ////////////////////////
     ///   CHANGE ORDER   ///
     ////////////////////////
@@ -463,6 +485,7 @@ contract Marketplace {
             p.status != Status.Challenged && 
             p.status != Status.Disputed
         ) revert Marketplace__ChangeOrderCannotBeProposed();
+        // if(p.status != Status.Discontinued && p.status != Status.Challenged) revert Marketplace__ChangeOrderCannotBeProposed();
         // if(activeChangeOrder(_projectId)) revert Marketplace__ChangeOrderAlreadyExists();
         if(_adjustedProjectFee > p.projectFee) revert Marketplace__AdjustedFeeExceedsProjectFee();
         if(_providerStakeForfeit > p.providerStake) revert Marketplace__ForfeitExceedsProviderStake();
@@ -495,8 +518,19 @@ contract Marketplace {
         ) revert Marketplace__AlreadyApprovedChangeOrder();
         if(msg.sender == p.buyer) c.buyerApproval = true;
         if(msg.sender == p.provider) c.providerApproval = true;
+
+        if(p.status == Status.Disputed) {
+            _validSettlement(p.projectId);
+        }
+
         p.status = Status.Resolved_ChangeOrder;
         emit ChangeOrderApproved(p.projectId, p.buyer, p.provider);
+    }
+
+    function _validSettlement(uint256 _projectId) private {
+        ICourt.Petition memory petition = COURT.getPetition(getArbitrationPetitionId(_projectId));
+        if(petition.phase != ICourt.Phase.Discovery) revert Marketplace__ChangeOrderNotValid();
+        COURT.settledExternally(petition.petitionId);
     }
 
     function proposeCounterOffer(

@@ -10,7 +10,8 @@ interface ICourt {
         Ruling, // jurors must reveal votes
         Verdict,
         DefaultJudgement, // one party doesn't pay - arbitration fee refunded - jury not drawn 
-        Dismissed // case is invalid, Marketplace reverts to original project conditions
+        Dismissed, // case is invalid, Marketplace reverts to original project conditions
+        SettledExternally // case was settled by change order in marketplace (arbitration does not progress)
     }
 
     struct Petition {
@@ -43,6 +44,7 @@ interface ICourt {
         address _defendant
     ) external returns (uint256);
     function appeal(uint256 _projectId) external returns (uint256);
+    function settledExternally(uint256 _petitionId) external;
     function getPetition(uint256 _petitionId) external view returns (Petition memory);
 
 

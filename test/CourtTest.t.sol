@@ -322,7 +322,7 @@ contract CourtTest is Test, TestSetup {
 
     // }
 
-    function test_reclaimArbitrationFee() public {
+    function test_reclaimArbitrationFee_after_verdict() public {
         vm.pauseGasMetering();
         _petitionWithRevealedVotes(petitionId_MATIC);
         vm.resumeGasMetering();
@@ -337,6 +337,40 @@ contract CourtTest is Test, TestSetup {
         court.reclaimArbitrationFee(p.petitionId);
         assertEq(court.getFeesHeld(p.petitionId), 0);
         assertEq(p.plaintiff.balance, plaintiffBalBefore + feesHeldBefore);
+    }
+
+    function test_reclaimArbitrationFee_after_settlement() public {
+        vm.pauseGasMetering();
+        Court.Petition memory petition = court.getPetition(petitionId_MATIC);
+        // plaintiff (buyer) pays arbitration fee
+        vm.prank(petition.plaintiff);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+        // defendant (provider) proposes settlement in marketplace
+        Marketplace.Project memory project = marketplace.getProject(petition.projectId);
+        string memory settlementDetails = "ipfs://someSettlementDetails";
+        vm.prank(petition.defendant);
+        marketplace.proposeSettlement(
+            project.projectId,
+            petition.adjustedProjectFee + 100 ether,
+            0,
+            settlementDetails
+        );
+        // plaintiff agrees to settlement 
+        vm.prank(petition.plaintiff);
+        marketplace.approveChangeOrder(project.projectId);
+        vm.resumeGasMetering();
+        // plaintiff reclaims arbitration fee 
+        petition = court.getPetition(petition.petitionId);
+        uint256 plaintiffBalBefore = petition.plaintiff.balance;
+        uint256 feesHeldBefore = court.getFeesHeld(petition.petitionId);
+        assertEq(petition.feePaidPlaintiff, true);
+
+        vm.expectEmit(true, true, false, true);
+        emit ArbitrationFeeReclaimed(petition.petitionId, petition.plaintiff, feesHeldBefore);
+        vm.prank(petition.plaintiff);
+        court.reclaimArbitrationFee(petition.petitionId);
+        assertEq(court.getFeesHeld(petition.petitionId), 0);
+        assertEq(petition.plaintiff.balance, plaintiffBalBefore + feesHeldBefore);
     }
 
     function test_reclaimArbitrationFee_revert() public {
@@ -372,6 +406,18 @@ contract CourtTest is Test, TestSetup {
         court.dismissUnpaidCase(p.petitionId);
         p = court.getPetition(petitionId_MATIC);
         assertEq(uint(p.phase), uint(Court.Phase.Dismissed));
+    }
+
+    // function test_dismissUnpaidCase_revert() public {}
+
+    function test_settledExternally() public {
+        vm.pauseGasMetering();
+        _petitionWithRevealedVotes(petitionId_MATIC);
+        Court.Petition memory petition = court.getPetition(petitionId_MATIC);
+        Marketplace.Project memory project = marketplace.getProject(petition.projectId);
+        vm.prank(project.buyer);
+        
+        vm.resumeGasMetering();
     }
 
     ////////////////

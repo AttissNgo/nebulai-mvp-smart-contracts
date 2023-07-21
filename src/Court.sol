@@ -37,7 +37,8 @@ contract Court is VRFConsumerBaseV2 {
         Ruling, // jurors must reveal votes
         Verdict,
         DefaultJudgement, // one party doesn't pay - arbitration fee refunded - jury not drawn 
-        Dismissed // case is invalid, Marketplace reverts to original project conditions
+        Dismissed, // case is invalid, Marketplace reverts to original project conditions
+        SettledExternally // case was settled by change order in marketplace (arbitration does not progress)
     }
 
     struct Petition {
@@ -98,6 +99,7 @@ contract Court is VRFConsumerBaseV2 {
     event JurorFeesClaimed(address indexed juror, uint256 amount);
     event ArbitrationFeeReclaimed(uint256 indexed petitionId, address indexed claimedBy, uint256 amount);
     event CaseDismissed(uint256 indexed petitionId);
+    event SettledExternally(uint256 indexed petitionId);
     
     // permissions
     error Court__OnlyGovernor();
@@ -335,12 +337,25 @@ contract Court is VRFConsumerBaseV2 {
 
     function reclaimArbitrationFee(uint256 _petitionId) external {
         Petition memory petition = getPetition(_petitionId);
-        if(petition.phase != Phase.Verdict) revert Court__ArbitrationFeeCannotBeReclaimed();
-        if(petition.petitionGranted && msg.sender != petition.plaintiff) revert Court__OnlyPrevailingParty();
-        else if(!petition.petitionGranted && msg.sender != petition.defendant) revert Court__OnlyPrevailingParty();
+
+        // if(petition.phase != Phase.Verdict) revert Court__ArbitrationFeeCannotBeReclaimed();
+        // if(petition.petitionGranted && msg.sender != petition.plaintiff) revert Court__OnlyPrevailingParty();
+        // else if(!petition.petitionGranted && msg.sender != petition.defendant) revert Court__OnlyPrevailingParty();
+
+        if(petition.phase == Phase.Verdict) {
+            if(petition.petitionGranted && msg.sender != petition.plaintiff) revert Court__OnlyPrevailingParty();
+            else if(!petition.petitionGranted && msg.sender != petition.defendant) revert Court__OnlyPrevailingParty();
+        } else if (petition.phase == Phase.SettledExternally) {
+            if(msg.sender != petition.plaintiff && msg.sender != petition.defendant) revert Court__OnlyLitigant();
+            if(petition.feePaidPlaintiff && msg.sender != petition.plaintiff) revert Court__ArbitrationFeeNotPaid();
+            else if(petition.feePaidDefendant && msg.sender != petition.defendant) revert Court__ArbitrationFeeNotPaid();
+            // else revert Court__ArbitrationFeeNotPaid();
+        } else revert Court__ArbitrationFeeCannotBeReclaimed();
+
+
         if(feesHeld[_petitionId] != petition.arbitrationFee) revert Court__ArbitrationFeeAlreadyReclaimed();
         uint256 reclaimAmount = feesHeld[_petitionId];
-        feesHeld[_petitionId] = 0;
+        feesHeld[_petitionId] -= reclaimAmount;
         (bool success, ) = msg.sender.call{value: reclaimAmount}("");
         if(!success) revert Court__TransferFailed();
         emit ArbitrationFeeReclaimed(_petitionId, msg.sender, reclaimAmount);
@@ -355,6 +370,13 @@ contract Court is VRFConsumerBaseV2 {
         petition.phase = Phase.Dismissed;
         emit CaseDismissed(_petitionId);
     } 
+
+    function settledExternally(uint256 _petitionId) external onlyMarketplace {
+        Petition storage petition = petitions[_petitionId];
+        if(petition.marketplace != msg.sender) revert Court__InvalidMarketplace();
+        petition.phase = Phase.SettledExternally;
+        emit SettledExternally(petition.petitionId);
+    }
 
     ////////////////
     ///   JURY   ///
