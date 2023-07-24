@@ -158,7 +158,7 @@ contract Marketplace {
     error Marketplace__AppealPeriodNotOver();
     error Marketplace__OnlyNonPrevailingParty();
     error Marketplace__CourtHasNotDismissedCase();
-
+    error Marketplace__CourtCaseAlreadyInitiated();
     
     modifier onlyUser() {
         if(!WHITELIST.isApproved(msg.sender)) revert Marketplace__OnlyUser();
@@ -459,6 +459,9 @@ contract Marketplace {
     {
         Project memory project = projects[_projectId];
         if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
+        if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
+        ICourt.Petition memory petition = COURT.getPetition(getArbitrationPetitionId(project.projectId));
+        if(petition.phase != ICourt.Phase.Discovery) revert Marketplace__CourtCaseAlreadyInitiated();
         _proposeChangeOrder(
             _projectId,
             _adjustedProjectFee,

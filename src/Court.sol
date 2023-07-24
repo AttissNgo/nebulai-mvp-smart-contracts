@@ -100,6 +100,8 @@ contract Court is VRFConsumerBaseV2 {
     event ArbitrationFeeReclaimed(uint256 indexed petitionId, address indexed claimedBy, uint256 amount);
     event CaseDismissed(uint256 indexed petitionId);
     event SettledExternally(uint256 indexed petitionId);
+    event DefaultJudgementEntered(uint256 indexed petitionId, address indexed claimedBy, bool verdict);
+
     
     // permissions
     error Court__OnlyGovernor();
@@ -121,6 +123,7 @@ contract Court is VRFConsumerBaseV2 {
     error Court__RulingCannotBeAppealed();
     error Court__FeesNotOverdue();
     error Court__ProjectIsNotDisputed();
+    error Court__OnlyDuringDiscovery();
     // juror actions
     error Court__JurorSeatsFilled();
     error Court__InvalidJuror();
@@ -373,9 +376,28 @@ contract Court is VRFConsumerBaseV2 {
 
     function settledExternally(uint256 _petitionId) external onlyMarketplace {
         Petition storage petition = petitions[_petitionId];
-        if(petition.marketplace != msg.sender) revert Court__InvalidMarketplace();
         petition.phase = Phase.SettledExternally;
         emit SettledExternally(petition.petitionId);
+    }
+
+    function requestDefaultJudgement(uint256 _petitionId) external {
+        Petition storage petition = petitions[_petitionId];
+        if(msg.sender != petition.plaintiff && msg.sender != petition.defendant) revert Court__OnlyLitigant();
+        if(petition.phase != Phase.Discovery) revert Court__OnlyDuringDiscovery();
+        if(msg.sender == petition.plaintiff) {
+            if(!petition.feePaidPlaintiff) revert Court__ArbitrationFeeNotPaid();
+        } else {
+            if(!petition.feePaidDefendant) revert Court__ArbitrationFeeNotPaid();
+        }
+        if(block.timestamp < petition.discoveryStart + DISCOVERY_PERIOD) revert Court__FeesNotOverdue();
+        // if(feesHeld[_petitionId] != petition.arbitrationFee) revert NebulaiCourt__ArbitrationFeeAlreadyReclaimed();
+        (msg.sender == petition.plaintiff) ? petition.petitionGranted = true : petition.petitionGranted = false;
+        petition.phase = Phase.DefaultJudgement;
+        uint256 reclaimAmount = feesHeld[_petitionId];
+        feesHeld[_petitionId] -= reclaimAmount;
+        (bool success, ) = msg.sender.call{value: reclaimAmount}("");
+        if(!success) revert Court__TransferFailed();
+        emit DefaultJudgementEntered(_petitionId, msg.sender, petition.petitionGranted);
     }
 
     ////////////////
@@ -396,7 +418,7 @@ contract Court is VRFConsumerBaseV2 {
         emit JurySelectionInitiated(_petitionId, requestId);
     }
 
-    // need more complex logic here
+    // placeholder logic - need more comprehensive selection algorithm
     function jurorsNeeded(uint256 petitionId) public view returns (uint256) {
         if(petitions[petitionId].isAppeal) return 5;
         else return 3;
@@ -467,7 +489,6 @@ contract Court is VRFConsumerBaseV2 {
     ///   JUROR ACTIONS   ///
     /////////////////////////
 
-
     function acceptCase(uint256 _petitionId) external payable {
         Jury storage jury = juries[_petitionId];
         if(jury.confirmedJurors.length >= jurorsNeeded(_petitionId)) revert Court__JurorSeatsFilled();
@@ -534,6 +555,12 @@ contract Court is VRFConsumerBaseV2 {
         if(!success) revert Court__TransferFailed();
         emit JurorFeesClaimed(msg.sender, feesOwed);
     }
+
+    ///////////////////////////
+    ///   JURY EXCEPTIONS   ///
+    ///////////////////////////
+
+    
 
     //////////////////////
     ///   GOVERNANCE   ///

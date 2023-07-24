@@ -41,6 +41,7 @@ contract MarketplaceTest is Test, TestSetup {
     event ProjectAppealed(uint256 indexed projectId, uint256 indexed petitionId, address appealedBy);
     event ResolvedByCourtOrder(uint256 indexed projectId, uint256 indexed petitionId);
     event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed petitionId);
+    event SettlementProposed(uint256 indexed projectId, uint256 indexed petitionId);
 
     function setUp() public {
         _setUp();
@@ -665,9 +666,63 @@ contract MarketplaceTest is Test, TestSetup {
         vm.expectRevert(Marketplace.Marketplace__CourtHasNotDismissedCase.selector);
         vm.prank(p.buyer);
         marketplace.resolveDismissedCase(p.projectId);
-
     }
 
+    function test_proposeSettlement() public {
+        vm.pauseGasMetering();
+        _disputedProject(testProjectId_ERC20); 
+        vm.resumeGasMetering();
+        Marketplace.Project memory p = marketplace.getProject(testProjectId_ERC20);
+        uint256 settlementProjectFee = 800 ether;
+        uint256 settlementProviderStakeForfeit = 50 ether;
+        string memory settlementURI = "ipfs://someSettlement";
+        vm.expectEmit(true, true, false, false);
+        emit SettlementProposed(p.projectId, marketplace.getArbitrationPetitionId(p.projectId));
+        vm.prank(p.buyer);
+        marketplace.proposeSettlement(
+            p.projectId,
+            settlementProjectFee,
+            settlementProviderStakeForfeit,
+            settlementURI
+        );
+        // change order created
+        Marketplace.ChangeOrder memory changeOrder = marketplace.getChangeOrder(p.projectId);
+        assertEq(changeOrder.adjustedProjectFee, settlementProjectFee);
+        assertEq(changeOrder.providerStakeForfeit, settlementProviderStakeForfeit);
+        assertEq(changeOrder.detailsURI, settlementURI);
+        assertEq(changeOrder.proposedBy, p.buyer);
+        assertEq(changeOrder.dateProposed, block.timestamp);
+    }
+
+    function test_proposeSettlement_revert() public {
+        // not disputed
+        Marketplace.Project memory p = marketplace.getProject(testProjectId_ERC20);
+        vm.expectRevert(Marketplace.Marketplace__ProjectIsNotDisputed.selector);
+        string memory settlementURI = "ipfs://someSettlement";
+        vm.prank(p.buyer);
+        marketplace.proposeSettlement(
+            p.projectId,
+            800 ether,
+            0,
+            settlementURI
+        );
+        // court case already initiated
+            // both parties pay fees and jury selection is initiated
+        _disputedProject(testProjectId_ERC20); 
+        Court.Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(p.projectId));
+        vm.prank(petition.plaintiff);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+        vm.prank(petition.defendant);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+        vm.expectRevert(Marketplace.Marketplace__CourtCaseAlreadyInitiated.selector);
+        vm.prank(p.buyer);
+        marketplace.proposeSettlement(
+            p.projectId,
+            800 ether,
+            0,
+            settlementURI
+        );
+    }
 
     //////////////////////////////
     ///   CHANGE ORDER TESTS   ///
