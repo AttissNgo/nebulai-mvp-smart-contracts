@@ -69,6 +69,7 @@ contract Marketplace {
         uint256 reviewPeriodLength;
         uint256 dateCompleted;
         uint256 changeOrderPeriodInitiated;
+        uint256 nebulaiTxFee;
         Status status;
         string detailsURI;
     }
@@ -222,6 +223,7 @@ contract Marketplace {
         p.providerStake = _providerStake;
         p.dueDate = _dueDate;
         p.reviewPeriodLength = _reviewPeriodLength;
+        p.nebulaiTxFee = txFee;
         p.detailsURI = _detailsURI;
         if(_paymentToken != address(0)) {
             if(!isApprovedToken[_paymentToken]) revert Marketplace__UnapprovedToken();
@@ -260,7 +262,7 @@ contract Marketplace {
         emit ProjectCancelled(_projectId, p.buyer, p.provider);
     }
 
-    function activateProject(uint256 _projectId) external payable {
+    function activateProject(uint256 _projectId) external payable onlyUser {
         Project storage p = projects[_projectId];
         if(msg.sender != p.provider) revert Marketplace__OnlyProvider();
         if(p.status != Status.Created) revert Marketplace__ProjectCannotBeActivated();

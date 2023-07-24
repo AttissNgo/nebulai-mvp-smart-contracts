@@ -375,9 +375,10 @@ contract CourtTest is Test, TestSetup {
 
     function test_reclaimArbitrationFee_revert() public {
         vm.pauseGasMetering();
-        _petitionWithRevealedVotes(petitionId_MATIC);
+        _petitionWithRevealedVotes(petitionId_MATIC); 
         vm.resumeGasMetering();
         Court.Petition memory p = court.getPetition(petitionId_MATIC);
+        // VERDICT
         // not prevailing party 
         assertEq(p.petitionGranted, true);
         vm.expectRevert(Court.Court__OnlyPrevailingParty.selector);
@@ -389,9 +390,31 @@ contract CourtTest is Test, TestSetup {
         vm.expectRevert(Court.Court__ArbitrationFeeAlreadyReclaimed.selector);
         vm.prank(p.plaintiff);
         court.reclaimArbitrationFee(p.petitionId);
-        // wrong phase 
-        vm.expectRevert(Court.Court__ArbitrationFeeCannotBeReclaimed.selector);
-        court.reclaimArbitrationFee(petitionId_ERC20);
+        // not litigant
+        vm.expectRevert(Court.Court__OnlyLitigant.selector);
+        vm.prank(zorro);
+        court.reclaimArbitrationFee(p.petitionId);
+        // SETTLEMENT
+        // fee not paid
+        p = court.getPetition(petitionId_ERC20);
+            // settlement proposed by defendant
+        string memory settlementURI = "ipfs://someSettlement";
+        vm.prank(p.defendant);
+        marketplace.proposeSettlement(
+            p.projectId,
+            projectFee - 100 ether,
+            0,
+            settlementURI
+        );
+            // plaintiff agrees 
+        vm.prank(p.plaintiff);
+        marketplace.approveChangeOrder(p.projectId);
+            // no one has paid
+        p = court.getPetition(petitionId_ERC20);
+        assertEq(p.feePaidPlaintiff, false);
+        vm.expectRevert(Court.Court__ArbitrationFeeNotPaid.selector);
+        vm.prank(p.plaintiff);
+        court.reclaimArbitrationFee(p.petitionId);
     }
 
     // function test_appeal() public {

@@ -337,6 +337,7 @@ contract Court is VRFConsumerBaseV2 {
 
     function reclaimArbitrationFee(uint256 _petitionId) external {
         Petition memory petition = getPetition(_petitionId);
+        if(msg.sender != petition.plaintiff && msg.sender != petition.defendant) revert Court__OnlyLitigant();
 
         // if(petition.phase != Phase.Verdict) revert Court__ArbitrationFeeCannotBeReclaimed();
         // if(petition.petitionGranted && msg.sender != petition.plaintiff) revert Court__OnlyPrevailingParty();
@@ -346,9 +347,8 @@ contract Court is VRFConsumerBaseV2 {
             if(petition.petitionGranted && msg.sender != petition.plaintiff) revert Court__OnlyPrevailingParty();
             else if(!petition.petitionGranted && msg.sender != petition.defendant) revert Court__OnlyPrevailingParty();
         } else if (petition.phase == Phase.SettledExternally) {
-            if(msg.sender != petition.plaintiff && msg.sender != petition.defendant) revert Court__OnlyLitigant();
-            if(petition.feePaidPlaintiff && msg.sender != petition.plaintiff) revert Court__ArbitrationFeeNotPaid();
-            else if(petition.feePaidDefendant && msg.sender != petition.defendant) revert Court__ArbitrationFeeNotPaid();
+            if(!petition.feePaidPlaintiff && msg.sender == petition.plaintiff) revert Court__ArbitrationFeeNotPaid();
+            else if(!petition.feePaidDefendant && msg.sender == petition.defendant) revert Court__ArbitrationFeeNotPaid();
             // else revert Court__ArbitrationFeeNotPaid();
         } else revert Court__ArbitrationFeeCannotBeReclaimed();
 
