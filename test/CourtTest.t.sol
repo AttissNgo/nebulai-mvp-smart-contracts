@@ -40,6 +40,8 @@ contract CourtTest is Test, TestSetup {
     event CaseDismissed(uint256 indexed petitionId);
     event SettledExternally(uint256 indexed petitionId);
     event DefaultJudgementEntered(uint256 indexed petitionId, address indexed claimedBy, bool verdict);
+    event AdditionalJurorDrawingInitiated(uint256 indexed petitionId, uint256 requestId);
+    event JurorRemoved(uint256 indexed petitionId, address indexed juror, uint256 stakeForfeit);
 
     function setUp() public {
         _setUp();
@@ -563,8 +565,6 @@ contract CourtTest is Test, TestSetup {
         }
     }
 
-    // test (and implement) juror redraw (later)//////
-
     function test_acceptCase() public {
         vm.pauseGasMetering();
         _petitionWithDrawnJury(petitionId_ERC20);
@@ -828,7 +828,111 @@ contract CourtTest is Test, TestSetup {
         court.claimJurorFees();
     }
 
+    ///////////////////////////
+    ///   JURY EXCEPTIONS   ///
+    ///////////////////////////
     
+    function test_drawAdditionalJurors() public {
+        vm.pauseGasMetering();
+        _petitionWithDrawnJury(petitionId_ERC20);
+        vm.resumeGasMetering();
+        Court.Petition memory p = court.getPetition(petitionId_ERC20);
+        Court.Jury memory jury = court.getJury(p.petitionId);
+        uint256 numDrawnJurorsBefore = jury.drawnJurors.length;
+        uint256 jurorStake = court.jurorFlatFee();
+        address juror_one = jury.drawnJurors[0];
+        vm.prank(juror_one);
+        court.acceptCase{value: jurorStake}(p.petitionId);
+        address juror_two = jury.drawnJurors[1];
+        vm.prank(juror_two);
+        court.acceptCase{value: jurorStake}(p.petitionId);
+            // time passes, but not enough jurors have confirmed
+        vm.warp(block.timestamp + court.JURY_SELECTION_PERIOD() + 1);
+            // draw more jurors
+        vm.expectEmit(true, false, false, false);
+        emit AdditionalJurorDrawingInitiated(p.petitionId, 42);
+        vm.recordLogs();
+        court.drawAdditionalJurors(p.petitionId);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        uint256 requestId = uint(bytes32(entries[1].data));
+        vrf.fulfillRandomWords(requestId, address(court));
+        jury = court.getJury(p.petitionId);
+        // number of drawn jurors has increased
+        assertEq(jury.drawnJurors.length, numDrawnJurorsBefore + court.jurorsNeeded(p.petitionId) * 2);
+        // no duplicates
+        for(uint i; i < jury.drawnJurors.length; ++i) {
+            for(uint j; j < jury.drawnJurors.length; ++j) {
+                if(i != j) assertFalse(jury.drawnJurors[i] == jury.drawnJurors[j]);
+            }
+        }
+    }
+
+    function test_drawAdditionalJurors_revert() public {
+        Court.Petition memory p = court.getPetition(petitionId_ERC20);
+        // wrong phase 
+        assertEq(uint(p.phase), uint(Court.Phase.Discovery));
+        vm.expectRevert(Court.Court__OnlyDuringJurySelection.selector);
+        court.drawAdditionalJurors(p.petitionId);
+        // jury selection period not over
+        _petitionWithDrawnJury(p.petitionId);
+        vm.expectRevert(Court.Court__InitialSelectionPeriodStillOpen.selector);
+        court.drawAdditionalJurors(p.petitionId);
+        // already redrawn
+            // time passes, but not enough jurors have confirmed
+        vm.warp(block.timestamp + court.JURY_SELECTION_PERIOD() + 1);
+            // additional drawing
+        vm.recordLogs();
+        court.drawAdditionalJurors(p.petitionId);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        uint256 requestId = uint(bytes32(entries[1].data));
+        vrf.fulfillRandomWords(requestId, address(court));
+        vm.expectRevert(Court.Court__JuryAlreadyRedrawn.selector);
+        court.drawAdditionalJurors(p.petitionId);
+    }
+
+    function test_removeJurorNoCommit() public {
+        vm.pauseGasMetering();
+        _petitionWithConfirmedJury(petitionId_MATIC);
+        Court.Petition memory petition = court.getPetition(petitionId_MATIC);
+            // 2 jurors commit votes
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+        bytes32 commit = keccak256(abi.encodePacked(juror0_vote, "someSalt"));
+        vm.prank(jury.confirmedJurors[0]);
+        court.commitVote(petition.petitionId, commit);
+        commit = keccak256(abi.encodePacked(juror1_vote, "someSalt"));
+        vm.prank(jury.confirmedJurors[1]);
+        court.commitVote(petition.petitionId, commit);
+        vm.resumeGasMetering();
+            // voting period passes
+        vm.warp(block.timestamp + court.VOTING_PERIOD() + 1);
+        address delinquentJuror = jury.confirmedJurors[2];
+        assertEq(uint(court.getCommit(delinquentJuror, petition.petitionId)), 0); // juror[2] has not voted
+        uint256 confirmedJurorsLengthBefore = jury.confirmedJurors.length;
+        uint256 drawnJurorsLengthBefore = jury.drawnJurors.length;
+        uint256 stakeForfeit = court.getJurorStakeHeld(delinquentJuror, petition.petitionId);
+        uint256 juryPoolBalBefore = juryPool.getJuryReserves();
+        vm.expectEmit(true, true, false, true);
+        emit JurorRemoved(petition.petitionId, delinquentJuror, stakeForfeit);
+        court.removeJurorNoCommit(petition.petitionId, delinquentJuror);    
+        // juror stake has been forfeited and transfered to jury pool fund
+        assertEq(court.getJurorStakeHeld(delinquentJuror, petition.petitionId), 0);
+        assertEq(juryPool.getJuryReserves(), juryPoolBalBefore + stakeForfeit);
+        // juror has been removed from jury
+        jury = court.getJury(petition.petitionId);
+        assertEq(jury.confirmedJurors.length, confirmedJurorsLengthBefore - 1);
+        assertEq(jury.drawnJurors.length, drawnJurorsLengthBefore - 1);
+        assertEq(court.isConfirmedJuror(petition.petitionId, delinquentJuror), false);
+        for(uint i; i < jury.drawnJurors.length; ++i) {
+            assertFalse(jury.drawnJurors[i] == delinquentJuror);
+        }
+        // new voting period has been initiated
+        petition = court.getPetition(petition.petitionId);
+        assertEq(petition.votingStart, block.timestamp);
+    }
+
+    // function test_removeJurorNoCommit_revert() public {}
+
+    // function test_removeJurorNoCommit_new_juror_can_confirm_and_vote() public {}
 
     ///////////////////////////////
     ///   GOVERNANCE & CONFIG   ///
