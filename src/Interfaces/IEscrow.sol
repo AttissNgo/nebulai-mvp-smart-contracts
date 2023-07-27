@@ -12,5 +12,7 @@ interface IEscrow {
 
     function providerHasStaked() external returns (bool);
     function verifyProviderStake() external returns (bool); 
+    function withdraw() external;
+    function hasWithdrawn(address _user) external view returns (bool);
 }
 

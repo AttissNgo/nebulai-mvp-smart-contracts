@@ -7,7 +7,6 @@ import "../test/USDTMock.sol";
 import "chainlink/VRFCoordinatorV2Mock.sol";
 
 import "../src/Governor.sol";
-import "../src/Treasury.sol";
 import "../src/Whitelist.sol";
 import "../src/JuryPool.sol";
 import "../src/Court.sol";
@@ -22,7 +21,6 @@ contract DeploymentLocal is Script {
     uint64 public subscriptionId;
 
     Governor public governor;
-    Treasury public treasury;
     Whitelist public whitelist;
     JuryPool public juryPool;
     Court public court;
@@ -70,8 +68,6 @@ contract DeploymentLocal is Script {
         // !!!!
         // deploy governor
         governor = new Governor(admins, sigsRequired);
-        // deploy treasury
-        treasury = new Treasury(address(governor));
         // deploy whitelist
         whitelist = new Whitelist(address(governor));
         // deploy jury pool
@@ -101,11 +97,6 @@ contract DeploymentLocal is Script {
             approvedTokens
         );
 
-        // fund treasury with USDT and MATIC
-        (bool success, ) = address(treasury).call{value: 1000 ether}("");
-        require(success, "transfer to treasury failed");
-        usdt.mint(address(treasury), 1000 ether);
-
         // supply all users with usdt
         for(uint i; i < users.length; ++i) {
             usdt.mint(users[i], 10000 ether);
@@ -125,7 +116,6 @@ contract DeploymentLocal is Script {
         string memory usdtMockAddr = vm.serializeAddress(obj1, "USDTMockAddress", address(usdt));
         string memory vrfMockAddr = vm.serializeAddress(obj1, "VRFMockAddress", address(vrf));
         string memory govAddr = vm.serializeAddress(obj1, "GovernorAddress", address(governor));
-        string memory treasuryAddr = vm.serializeAddress(obj1, "TreasuryAddress", address(treasury));
         string memory whitelistAddr = vm.serializeAddress(obj1, "WhitelistAddress", address(whitelist));
         string memory juryPoolAddr = vm.serializeAddress(obj1, "JuryPoolAddress", address(juryPool));
         string memory courtAddr = vm.serializeAddress(obj1, "CourtAddress", address(court));
@@ -135,7 +125,6 @@ contract DeploymentLocal is Script {
         vm.writeJson(usdtMockAddr, "./deploymentInfo.json");
         vm.writeJson(vrfMockAddr, "./deploymentInfo.json");
         vm.writeJson(govAddr, "./deploymentInfo.json");
-        vm.writeJson(treasuryAddr, "./deploymentInfo.json");
         vm.writeJson(whitelistAddr, "./deploymentInfo.json");
         vm.writeJson(juryPoolAddr, "./deploymentInfo.json");
         vm.writeJson(courtAddr, "./deploymentInfo.json");

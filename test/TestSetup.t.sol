@@ -7,7 +7,6 @@ import "./USDTMock.sol";
 import "chainlink/VRFCoordinatorV2Mock.sol";
 
 import "../src/Governor.sol";
-import "../src/Treasury.sol";
 import "../src/Whitelist.sol";
 import "../src/JuryPool.sol";
 import "../src/Court.sol";
@@ -25,10 +24,6 @@ contract TestSetup is Test {
     // contracts
     Governor public governor;
     uint8 sigsRequired = 3;
-
-    Treasury public treasury;
-    uint256 initialTreasuryBalanceMATIC = 1000 ether;
-    uint256 initialTreasuryBalanceUSDT = 1000 ether;
 
     Whitelist public whitelist;
 
@@ -84,7 +79,6 @@ contract TestSetup is Test {
         subscriptionId = vrf.createSubscription();
         vrf.fundSubscription(subscriptionId, 100 ether);
         governor = new Governor(admins, sigsRequired);
-        treasury = new Treasury(address(governor));
         whitelist = new Whitelist(address(governor));
         juryPool = new JuryPool(address(governor), address(whitelist));
 
@@ -115,9 +109,6 @@ contract TestSetup is Test {
         vm.stopPrank();
         // util_executeGovernorTx(txIndex);
 
-        // fund treasury with USDT and MATIC
-        vm.deal(address(treasury), initialTreasuryBalanceMATIC);
-        usdt.mint(address(treasury), initialTreasuryBalanceUSDT);
 
         // supply ether & usdt
         for(uint i; i < users.length; ++i) {
@@ -158,7 +149,6 @@ contract TestSetup is Test {
 
     function _labelTestAddresses() public {
         vm.label(address(usdt), "USDT");
-        vm.label(address(treasury), "Treasury");
         vm.label(address(governor), "Governor");
 
         vm.label(alice, "alice");
@@ -193,8 +183,4 @@ contract TestSetup is Test {
         vm.label(admin4, "admin4");
     }
 
-    // function testSetNumber(uint256 x) public {
-    //     counter.setNumber(x);
-    //     assertEq(counter.number(), x);
-    // }
 }

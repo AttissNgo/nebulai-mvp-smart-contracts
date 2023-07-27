@@ -22,6 +22,7 @@ interface IEscrowFactory {
         address _paymentToken,
         uint256 _projectFee,
         uint256 _providerStake,
+        address _court,
         string memory _detailsURI
     ) external returns (address); 
 }
@@ -40,6 +41,7 @@ contract Marketplace {
     uint256 public constant minimumTxFee = 3 ether; // if project fee is very low or zero, buyer still must pay 3 matic to create project
     mapping(uint256 => uint256) private txFeesHeld; // project ID to amount held - check Project object for payment token
     mapping(address => uint256) private txFeesPaid; // token address (0 for matic) => amount
+    mapping(address => uint256) private commissionFees; // token address (0 for matic) => amount
 
     enum Status { 
         Created, // project is created but has not been started - Escrow holds project fee
@@ -116,6 +118,7 @@ contract Marketplace {
     event ResolvedByCourtOrder(uint256 indexed projectId, uint256 indexed petitionId);
     event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed petitionId);
     event SettlementProposed(uint256 indexed projectId, uint256 indexed petitionId);
+    event CommissionFeeReceived(uint256 indexed projectId, uint256 commissionAmount, address paymentToken);
 
     // transfers
     error Marketplace__TransferFailed();
@@ -127,6 +130,7 @@ contract Marketplace {
     error Marketplace__OnlyBuyer();
     error Marketplace__OnlyProvider();
     error Marketplace__OnlyBuyerOrProvider();
+    error Marketplace__CommissionMustBePaidByEscrow();
     // input data
     error Marketplace__InvalidProviderAddress();
     error Marketplace__InvalidDueDate();
@@ -187,6 +191,9 @@ contract Marketplace {
         }
     }
 
+    fallback() external payable {}
+    receive() external payable {}
+
     function createProject(
         address _provider,
         address _paymentToken,
@@ -217,6 +224,7 @@ contract Marketplace {
             _paymentToken,
             _projectFee,
             _providerStake,
+            address(COURT),
             _detailsURI
         );
         p.paymentToken = _paymentToken;
@@ -580,6 +588,13 @@ contract Marketplace {
         isApprovedToken[_token] = true;
     }
 
+    function receiveCommission(uint256 _projectId, uint256 _commission) external {
+        Project memory project = getProject(_projectId);
+        if(msg.sender != project.escrow) revert Marketplace__CommissionMustBePaidByEscrow();
+        commissionFees[project.paymentToken] += _commission;
+        emit CommissionFeeReceived(_projectId, _commission, project.paymentToken);
+    }
+
     //////////////////////
     ///   GOVERNANCE   ///
     //////////////////////
@@ -605,8 +620,12 @@ contract Marketplace {
     ///////////////////
 
     function getProject(uint256 _projectId) public view returns (Project memory) {
-        // check if exists
         return projects[_projectId];
+    }
+
+    function getProjectStatus(uint256 _projectId) public view returns (Status) {
+        Project memory project = getProject(_projectId);
+        return project.status;
     }
 
     function isDisputed(uint256 _projectId) public view returns (bool) {
@@ -619,6 +638,10 @@ contract Marketplace {
 
     function getTxFeesPaid(address _paymentToken) public view returns (uint256) {
         return txFeesPaid[_paymentToken];
+    }
+
+    function getCommissionFees(address _paymentToken) public view returns (uint256) {
+        return commissionFees[_paymentToken];
     }
 
     function getChangeOrder(uint256 _projectId) public view returns (ChangeOrder memory) {

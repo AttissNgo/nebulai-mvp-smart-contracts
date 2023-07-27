@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import "solmate/src/utils/CREATE3.sol";
 import "./Escrow.sol";
 
-
 contract EscrowFactory {
 
     function createEscrowContract(
@@ -15,6 +14,7 @@ contract EscrowFactory {
         address _paymentToken,
         uint256 _projectFee,
         uint256 _providerStake,
+        address _court,
         string memory _detailsURI
     ) 
         external 
@@ -32,7 +32,8 @@ contract EscrowFactory {
                     _provider,
                     _paymentToken,
                     _projectFee,
-                    _providerStake
+                    _providerStake,
+                    _court
                 )
             ),
             0

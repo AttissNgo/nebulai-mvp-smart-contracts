@@ -42,6 +42,9 @@ contract CourtTest is Test, TestSetup {
     event DefaultJudgementEntered(uint256 indexed petitionId, address indexed claimedBy, bool verdict);
     event AdditionalJurorDrawingInitiated(uint256 indexed petitionId, uint256 requestId);
     event JurorRemoved(uint256 indexed petitionId, address indexed juror, uint256 stakeForfeit);
+    event DelinquentReveal(uint256 indexed petitionId, bool deadlocked);
+    event JurorFeeReimbursementOwed(uint256 indexed petitionId, address indexed juror, uint256 jurorFee);
+    event CaseRestarted(uint256 indexed petitionId, uint256 requestId);
 
     function setUp() public {
         _setUp();
@@ -933,6 +936,135 @@ contract CourtTest is Test, TestSetup {
     // function test_removeJurorNoCommit_revert() public {}
 
     // function test_removeJurorNoCommit_new_juror_can_confirm_and_vote() public {}
+
+    function test_delinquentReveal_majority() public {
+        vm.pauseGasMetering();
+        _petitionWithCommittedVotes(petitionId_MATIC);
+            // juror0 and juror1 both vote 'true' and reveal --- there is a majority even without juror2
+        Court.Petition memory petition = court.getPetition(petitionId_MATIC);
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+        vm.prank(jury.confirmedJurors[0]);
+        court.revealVote(petition.petitionId, juror0_vote, "someSalt");
+        vm.prank(jury.confirmedJurors[1]);
+        court.revealVote(petition.petitionId, juror1_vote, "someSalt");
+            // ruling period passes
+        vm.warp(block.timestamp + court.RULING_PERIOD() + 1);
+        vm.resumeGasMetering();
+        uint256 juror0_FeesOwedBefore = court.getJurorFeesOwed(jury.confirmedJurors[0]);
+        uint256 juror1_FeesOwedBefore = court.getJurorFeesOwed(jury.confirmedJurors[1]);
+        uint256 juryPoolReservesBefore = juryPool.getJuryReserves();
+        address delinquentJuror = jury.confirmedJurors[2];
+        assertEq(court.getJurorStakeHeld(delinquentJuror, petition.petitionId), court.jurorFlatFee());
+        vm.expectEmit(true, false, false, true);
+        emit VerdictReached(petition.petitionId, true, 2);
+        vm.expectEmit(true, false, false, true);
+        emit DelinquentReveal(petition.petitionId, false);
+        court.delinquentReveal(petition.petitionId);
+        // juror2 has forfeitted stake
+        assertEq(court.getJurorStakeHeld(delinquentJuror, petition.petitionId), 0);
+        assertEq(juryPool.getJuryReserves(), juryPoolReservesBefore + court.jurorFlatFee());
+        // verdict has been rendered 
+        petition = court.getPetition(petition.petitionId);
+        assertEq(petition.verdictRenderedDate, block.timestamp);
+        assertEq(uint(petition.phase), uint(Court.Phase.Verdict));
+        assertEq(petition.petitionGranted, true);
+        // jurors 0 & 1 fees have been allocated
+        assertEq(court.getJurorFeesOwed(jury.confirmedJurors[0]), juror0_FeesOwedBefore + court.jurorFlatFee());
+        assertEq(court.getJurorFeesOwed(jury.confirmedJurors[1]), juror1_FeesOwedBefore + court.jurorFlatFee());
+    }
+
+    function test_delinquentReveal_no_majority() public {
+        vm.pauseGasMetering();
+        _petitionWithCommittedVotes(petitionId_MATIC);
+            // juror1 and juror2 both reveal (true and false) - case is now deadlocked
+        Court.Petition memory petition = court.getPetition(petitionId_MATIC);
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+        vm.prank(jury.confirmedJurors[1]);
+        court.revealVote(petition.petitionId, juror1_vote, "someSalt");
+        vm.prank(jury.confirmedJurors[2]);
+        court.revealVote(petition.petitionId, juror2_vote, "someSalt");
+            // ruling period passes
+        vm.warp(block.timestamp + court.RULING_PERIOD() + 1);
+        vm.resumeGasMetering();
+
+        address delinquentJuror = jury.confirmedJurors[0];
+        uint256 deliquentJurorStakeBefore = court.getJurorStakeHeld(delinquentJuror, petition.petitionId);
+        uint256 juror1_reimbursementBefore = court.getJurorFeeReimbursementOwed(jury.confirmedJurors[1]);
+        uint256 juror2_reimbursementBefore = court.getJurorFeeReimbursementOwed(jury.confirmedJurors[2]);
+        uint256 juryPoolReservesBefore = juryPool.getJuryReserves();
+        vm.expectEmit(true, true, false, true);
+        emit JurorFeeReimbursementOwed(
+            petition.petitionId, 
+            jury.confirmedJurors[1], 
+            court.jurorFlatFee()
+        );
+        vm.expectEmit(true, true, false, true);
+        emit JurorFeeReimbursementOwed(
+            petition.petitionId, 
+            jury.confirmedJurors[2], 
+            court.jurorFlatFee()
+        );
+        vm.expectEmit(true, false, false, false);
+        emit CaseRestarted(petition.petitionId, 42);
+        vm.expectEmit(true, false, false, true);
+        emit DelinquentReveal(petition.petitionId, true);
+        vm.recordLogs();
+        court.delinquentReveal(petition.petitionId);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        uint256 requestId = uint(bytes32(entries[4].data));
+        vrf.fulfillRandomWords(requestId, address(court));
+        // juror reimbursement for revealing jurors has been recorder 
+        assertEq(court.getJurorFeeReimbursementOwed(jury.confirmedJurors[1]), juror1_reimbursementBefore + court.jurorFlatFee());
+        assertEq(court.getJurorFeeReimbursementOwed(jury.confirmedJurors[2]), juror2_reimbursementBefore + court.jurorFlatFee());
+        // delinquent juror has lost stake
+        assertEq(court.getJurorStakeHeld(delinquentJuror, petition.petitionId), deliquentJurorStakeBefore - court.jurorFlatFee());
+        // forfettied stake has been transferred to pool reserves
+        assertEq(juryPool.getJuryReserves(), juryPoolReservesBefore + court.jurorFlatFee());
+        // case has been restarted (with arbitration fees still in place)
+        petition = court.getPetition(petition.petitionId);
+        assertEq(uint(petition.phase), uint(Court.Phase.JurySelection));
+        assertEq(petition.selectionStart, block.timestamp);
+        assertEq(court.getFeesHeld(petition.petitionId), petition.arbitrationFee * 2);
+    }
+
+    function test_delinquentReveal_revert() public {
+        vm.pauseGasMetering();
+        _petitionWithConfirmedJury(petitionId_ERC20);
+        Court.Petition memory petition = court.getPetition(petitionId_ERC20);
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+        vm.resumeGasMetering();
+        // not all votes committed
+            // 2 jurors commit
+        bytes32 commit = keccak256(abi.encodePacked(juror0_vote, "someSalt"));
+        vm.prank(jury.confirmedJurors[0]);
+        court.commitVote(petition.petitionId, commit);
+        commit = keccak256(abi.encodePacked(juror1_vote, "someSalt"));
+        vm.prank(jury.confirmedJurors[1]);
+        court.commitVote(petition.petitionId, commit);
+        vm.expectRevert(Court.Court__OnlyDuringRuling.selector);
+        court.delinquentReveal(petition.petitionId);
+        // ruling period still active
+            // last juror commits
+        commit = keccak256(abi.encodePacked(juror2_vote, "someSalt"));
+        vm.prank(jury.confirmedJurors[2]);
+        court.commitVote(petition.petitionId, commit);
+        petition = court.getPetition(petition.petitionId);
+        assertEq(uint(petition.phase), uint(Court.Phase.Ruling));
+        vm.expectRevert(Court.Court__RulingPeriodStillActive.selector);
+        court.delinquentReveal(petition.petitionId);
+        // no delinquent reveals
+            // ruling period passes
+        vm.warp(block.timestamp + court.RULING_PERIOD() + 1);
+            // jurors reveal
+        vm.prank(jury.confirmedJurors[0]);
+        court.revealVote(petition.petitionId, juror0_vote, "someSalt");
+        vm.prank(jury.confirmedJurors[1]);
+        court.revealVote(petition.petitionId, juror1_vote, "someSalt");
+        vm.prank(jury.confirmedJurors[2]);
+        court.revealVote(petition.petitionId, juror2_vote, "someSalt");
+        vm.expectRevert(Court.Court__OnlyDuringRuling.selector);
+        court.delinquentReveal(petition.petitionId);
+    }
 
     ///////////////////////////////
     ///   GOVERNANCE & CONFIG   ///
