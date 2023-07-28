@@ -306,28 +306,31 @@ contract CourtTest is Test, TestSetup {
     }
 
     function test_submitAdditionalEvidence() public {
-        Court.Petition memory p = court.getPetition(petitionId_MATIC);
+        Court.Petition memory petition = court.getPetition(petitionId_MATIC);
         // buyer pays
         vm.pauseGasMetering();
         test_payArbitrationFee();
         vm.resumeGasMetering();
         vm.prank(buyer);
-        court.submitAdditionalEvidence(p.petitionId, additionalEvidence);
-        p = court.getPetition(petitionId_MATIC);
-        assertEq(p.evidence[2], additionalEvidence[0]);
-        assertEq(p.evidence[3], additionalEvidence[1]);
+        court.submitAdditionalEvidence(petition.petitionId, additionalEvidence);
+        petition = court.getPetition(petitionId_MATIC);
+        assertEq(petition.evidence[2], additionalEvidence[0]);
+        assertEq(petition.evidence[3], additionalEvidence[1]);
     }
 
-    // function test_submitAdditionalEvidence_revert() public {
-    //     Court.Petition memory p = court.getPetition(petitionId_MATIC);
-    //     // fee not paid
-    //     assertEq(p.feePaidDefendant, false);
-    //     vm.expectRevert(Court.Court__ArbitrationFeeNotPaid.selector);
-    //     vm.prank(p.defendant);
-    //     court.submitAdditionalEvidence(p.petitionId, additionalEvidence);
-    //     // wrong phase
-
-    // }
+    function test_submitAdditionalEvidence_revert() public {
+        Court.Petition memory petition = court.getPetition(petitionId_MATIC);
+        // fee not paid
+        assertEq(petition.feePaidDefendant, false);
+        vm.expectRevert(Court.Court__ArbitrationFeeNotPaid.selector);
+        vm.prank(petition.defendant);
+        court.submitAdditionalEvidence(petition.petitionId, additionalEvidence);
+        // wrong phase
+        _petitionWithConfirmedJury(petition.petitionId);
+        vm.expectRevert(Court.Court__EvidenceCanNoLongerBeSubmitted.selector);
+        vm.prank(petition.defendant);
+        court.submitAdditionalEvidence(petition.petitionId, additionalEvidence);
+    }
 
     function test_reclaimArbitrationFee_after_verdict() public {
         vm.pauseGasMetering();
@@ -435,7 +438,9 @@ contract CourtTest is Test, TestSetup {
     }
 
     // function test_appeal() public {
-        
+    //     vm.pauseGasMetering();
+
+    //     vm.resumeGasMetering();
     // }
 
     function test_dismissUnpaidCase() public {

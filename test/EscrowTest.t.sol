@@ -288,10 +288,6 @@ contract EscrowTest is Test, TestSetup {
         escrow.withdraw();
     }
 
-    // delinquent payment
-
-    // arbitration dismissed
-
     function test_withdraw_change_order() public {
         vm.pauseGasMetering();
         _projectWithChangeOrder(testProjectId_ERC20);

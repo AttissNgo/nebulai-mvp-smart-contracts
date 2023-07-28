@@ -149,9 +149,12 @@ contract DeploymentMumbai is Script {
     address public vrfMumbai = vrfMumbai;
 
     address[] public admins = [
-        0x537Df8463a09D0370DeE4dE077178300340b0030, // mumbai
-        0xe540A4E03adeFB734ecE9d67E1A86199ee907Caa, // mumbai
-        0x298334B4895392b0BA15261194cF1642A4adf9Fc // mumbai
+        0x537Df8463a09D0370DeE4dE077178300340b0030, // attiss - deployer
+        0x834B1AaB6E94462Cd092F9e7013F759ED4D61D1E, // test admin for whitelisting
+        0x869752aF1b78BBA42329b9c5143A9c28af482E7f, // hussain
+        0xb3fF81238C7F68A3EB73df4b58636Eddd88D9F55, // hussain
+        0xe540A4E03adeFB734ecE9d67E1A86199ee907Caa, // attiss
+        0x298334B4895392b0BA15261194cF1642A4adf9Fc // attiss
     ];
     uint256 public sigsRequired = 2;
     
