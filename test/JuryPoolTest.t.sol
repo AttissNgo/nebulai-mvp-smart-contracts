@@ -13,6 +13,7 @@ contract JuryPoolTest is Test, TestSetup {
     event StakeWithdrawn(address indexed juror, uint256 withdrawAmount, uint256 totalStake);
     event Staked(address indexed juror, uint256 stakeAmount, uint256 totalStake);
     event JuryReservesFunded(uint256 amount, address from);
+    event JuryReservesWithdrawn(address recipient, uint256 amount);
 
     function setUp() public {
         _setUp();
@@ -253,6 +254,49 @@ contract JuryPoolTest is Test, TestSetup {
         vm.prank(alice);
         juryPool.fundJuryReserves{value: amount}();
         assertEq(juryPool.getJuryReserves(), juryReservesBefore + amount);
+    }
+
+    function test_withdrawJuryReserves() public {
+        uint256 fundAmount = 1000 ether;
+        vm.prank(alice);
+        juryPool.fundJuryReserves{value: fundAmount}();
+        uint256 withdrawAmount = fundAmount/2;
+        uint256 recipientBalBefore = admin1.balance;
+        uint256 contractBalBefore = address(juryPool).balance;
+        uint256 reservesBefore = juryPool.getJuryReserves();
+        bytes memory data = abi.encodeWithSignature("withdrawJuryReserves(address,uint256)", admin1, withdrawAmount);
+        vm.prank(admin1);
+        uint256 txIndex = governor.proposeTransaction(address(juryPool), 0, data);
+        vm.expectEmit(false, false, false, true);
+        emit JuryReservesWithdrawn(admin1, withdrawAmount);
+        util_executeGovernorTx(txIndex);
+        assertEq(admin1.balance, recipientBalBefore + withdrawAmount);
+        assertEq(address(juryPool).balance, contractBalBefore - withdrawAmount);
+        assertEq(juryPool.getJuryReserves(), reservesBefore - withdrawAmount);
+    }
+
+    function test_withdrawJuryReserves_revert() public {
+        uint256 fundAmount = 1000 ether;
+        vm.prank(alice);
+        juryPool.fundJuryReserves{value: fundAmount}();
+        // withdraw 0
+        bytes memory data = abi.encodeWithSignature("withdrawJuryReserves(address,uint256)", admin1, 0);
+        vm.prank(admin1);
+        uint256 txIndex = governor.proposeTransaction(address(juryPool), 0, data);
+        vm.prank(admin2);
+        governor.signTransaction(txIndex);
+        vm.expectRevert();
+        vm.prank(admin3);
+        governor.signTransaction(txIndex);
+        // insufficient balance
+        data = abi.encodeWithSignature("withdrawJuryReserves(address,uint256)", admin1, juryPool.getJuryReserves() + 1);
+        vm.prank(admin1);
+        txIndex = governor.proposeTransaction(address(juryPool), 0, data);
+        vm.prank(admin2);
+        governor.signTransaction(txIndex);
+        vm.expectRevert();
+        vm.prank(admin3);
+        governor.signTransaction(txIndex);
     }
  
 }

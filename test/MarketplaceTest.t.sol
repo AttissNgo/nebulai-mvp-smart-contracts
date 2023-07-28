@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
 import "./TestSetup.t.sol";
-
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../src/Interfaces/IEscrow.sol";
 
 contract MarketplaceTest is Test, TestSetup {
@@ -42,6 +42,7 @@ contract MarketplaceTest is Test, TestSetup {
     event ResolvedByCourtOrder(uint256 indexed projectId, uint256 indexed petitionId);
     event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed petitionId);
     event SettlementProposed(uint256 indexed projectId, uint256 indexed petitionId);
+    event FeesWithdrawn(address recipient, uint256 nativeAmount, address[] erc20Tokens, uint256[] erc20Amounts);
 
     function setUp() public {
         _setUp();
@@ -151,6 +152,8 @@ contract MarketplaceTest is Test, TestSetup {
         vm.stopPrank();
         return projectId;
     }
+
+    
 
     function test_deployment() public {
         // usdt is approved
@@ -885,20 +888,70 @@ contract MarketplaceTest is Test, TestSetup {
         // assertEq(escrow.verifyProviderStake(), true);
     }
 
-    // function test_escrow_approved_project() public {
-    //     Marketplace.Project memory p = marketplace.getProject(testProjectId_ERC20);
-    //     IEscrow escrow = IEscrow(p.escrow);
-    //     vm.startPrank(provider);
-    //     usdt.approve(address(marketplace), p.providerStake);
-    //     marketplace.activateProject(p.projectId);
-    //     marketplace.completeProject(p.projectId);
-    //     vm.stopPrank();
-    //     vm.prank(buyer);
-    //     marketplace.approveProject(p.projectId);
-    //     // users claim
-    // }
+    //////////////////////////////
+    ///   GOVERNANCE & ADMIN   ///
+    //////////////////////////////
 
-    // internals
-        // approving / removing erc20
+    function test_withdrawFees() public {
+        vm.pauseGasMetering();
+        uint256 nativeTxFees;
+        uint256 nativeCommissionFees;
+        uint256 erc20TxFees;
+        uint256 erc20CommissionFees;
+            // complete some projects
+        Marketplace.Project memory project = marketplace.getProject(testProjectId_MATIC); 
+        vm.prank(project.provider);
+        marketplace.activateProject{value: project.providerStake}(project.projectId);
+        nativeTxFees += marketplace.calculateNebulaiTxFee(project.projectFee);
+        vm.prank(project.provider);
+        marketplace.completeProject(project.projectId);
+        vm.prank(project.buyer);
+        marketplace.approveProject(project.projectId);
+        vm.prank(project.provider);
+        IEscrow(project.escrow).withdraw();
+        nativeCommissionFees += (project.projectFee/100);
+
+        project = marketplace.getProject(testProjectId_ERC20);
+        vm.prank(project.provider);
+        IERC20(project.paymentToken).approve(address(marketplace), project.providerStake);
+        vm.prank(project.provider);
+        marketplace.activateProject(project.projectId); 
+        erc20TxFees += marketplace.calculateNebulaiTxFee(project.projectFee);
+        vm.prank(project.provider);
+        marketplace.completeProject(project.projectId);
+        vm.prank(project.buyer);
+        marketplace.approveProject(project.projectId);
+        vm.prank(project.provider);
+        IEscrow(project.escrow).withdraw();
+        erc20CommissionFees += (project.projectFee/100);
+
+        assertEq(marketplace.getTxFeesPaid(address(0)), nativeTxFees);
+        vm.resumeGasMetering();
+
+        uint256 admin1BalBefore = admin1.balance;
+        uint256 admin1TokenBalBefore = IERC20(project.paymentToken).balanceOf(admin1);
+        uint256 contractBalBefore = address(marketplace).balance;
+        uint256 contractTokenBalBefore = IERC20(project.paymentToken).balanceOf(address(marketplace));
+
+        address[] memory erc20s = new address[](1);
+        erc20s[0] = project.paymentToken;
+        uint256[] memory erc20sPaid = new uint256[](1);
+        erc20sPaid[0] = erc20TxFees + erc20CommissionFees;
+        bytes memory data = abi.encodeWithSignature("withdrawFees(address,address[])", admin1, erc20s);
+        vm.prank(admin1);
+        uint256 txIndex = governor.proposeTransaction(address(marketplace), 0, data);
+        vm.expectEmit(false, false, false, true);
+        emit FeesWithdrawn(admin1, nativeTxFees + nativeCommissionFees, erc20s, erc20sPaid);
+        util_executeGovernorTx(txIndex);
+
+        assertEq(admin1.balance, admin1BalBefore + nativeTxFees + nativeCommissionFees);
+        assertEq(IERC20(project.paymentToken).balanceOf(admin1), admin1TokenBalBefore + erc20TxFees + erc20CommissionFees);
+        assertEq(address(marketplace).balance, contractBalBefore - nativeTxFees - nativeCommissionFees);
+        assertEq(IERC20(project.paymentToken).balanceOf(address(marketplace)), contractTokenBalBefore - erc20TxFees - erc20CommissionFees);
+        assertEq(marketplace.getTxFeesPaid(address(0)), 0);
+        assertEq(marketplace.getTxFeesPaid(project.paymentToken), 0);
+        assertEq(marketplace.getCommissionFees(address(0)), 0);
+        assertEq(marketplace.getCommissionFees(project.paymentToken), 0);
+    }
 
 }

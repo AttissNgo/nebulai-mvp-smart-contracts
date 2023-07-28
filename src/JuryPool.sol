@@ -24,7 +24,6 @@ contract JuryPool {
 
     uint256 public minimumStake = 100 ether;
     mapping(address => uint256) private juryPoolStake;
-    // way to get stake out (gov)
 
     Juror[] public jurors;
     mapping(address => uint256) private jurorIndex;
@@ -42,6 +41,7 @@ contract JuryPool {
     event StakeWithdrawn(address indexed juror, uint256 withdrawAmount, uint256 totalStake);
     event Staked(address indexed juror, uint256 stakeAmount, uint256 totalStake);
     event JuryReservesFunded(uint256 amount, address from);
+    event JuryReservesWithdrawn(address recipient, uint256 amount);
 
     error JuryPool__OnlyGovernor();
     error JuryPool__OnlyWhitelisted();
@@ -54,7 +54,8 @@ contract JuryPool {
     error JuryPool__JurorAlreadySuspended();
     error JuryPool__JurorNotSuspended();
     error JuryPool__InsufficientStake();
-    error JuryPool_TransferFailed();
+    error JuryPool__TransferFailed();
+    error JuryPool__InsufficientReserves();
 
     modifier onlyGovernor() {
         if(msg.sender != GOVERNOR) revert JuryPool__OnlyGovernor();
@@ -118,7 +119,7 @@ contract JuryPool {
         if(getJurorStake(msg.sender) < _withdrawAmount) revert JuryPool__InsufficientStake();
         juryPoolStake[msg.sender] -= _withdrawAmount;
         (bool success, ) = msg.sender.call{value: _withdrawAmount}("");
-        if(!success) revert JuryPool_TransferFailed();
+        if(!success) revert JuryPool__TransferFailed();
         emit StakeWithdrawn(msg.sender, _withdrawAmount, juryPoolStake[msg.sender]);
     }
 
@@ -153,6 +154,15 @@ contract JuryPool {
         if(juror.jurorStatus != JurorStatus.Suspended) revert JuryPool__JurorNotSuspended();
         juror.jurorStatus = JurorStatus.Active;
         emit JurorReinstated(juror.jurorAddress, index);
+    }
+
+    function withdrawJuryReserves(address _recipient, uint256 _amount) external onlyGovernor {
+        require(_amount > 0);
+        if(_amount > juryReserves) revert JuryPool__InsufficientReserves();
+        juryReserves -= _amount;
+        (bool success, ) = _recipient.call{value: _amount}("");
+        if(!success) revert JuryPool__TransferFailed();
+        emit JuryReservesWithdrawn(_recipient, _amount);
     }
 
     ///////////////////

@@ -7,12 +7,6 @@ import "./Interfaces/IWhitelist.sol";
 import "./Interfaces/IEscrow.sol";
 import "./Interfaces/ICourt.sol";
 
-/**
- * Stores project state
- * Used to get details of project
- * coordinates change orders and court orders
- */
-
 interface IEscrowFactory {
     function createEscrowContract(
         address _marketplace,
@@ -119,6 +113,7 @@ contract Marketplace {
     event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed petitionId);
     event SettlementProposed(uint256 indexed projectId, uint256 indexed petitionId);
     event CommissionFeeReceived(uint256 indexed projectId, uint256 commissionAmount, address paymentToken);
+    event FeesWithdrawn(address recipient, uint256 nativeAmount, address[] erc20Tokens, uint256[] erc20Amounts);
 
     // transfers
     error Marketplace__TransferFailed();
@@ -580,10 +575,6 @@ contract Marketplace {
         return txFee;
     }
 
-    ////////////////////
-    ///   INTERNAL   ///
-    ////////////////////
-
     function _approveToken(address _token) private {
         isApprovedToken[_token] = true;
     }
@@ -613,6 +604,31 @@ contract Marketplace {
     function removeToken(address _erc20) external onlyGovernor {
         isApprovedToken[_erc20] = false;
         emit ERC20Removed(_erc20);
+    }
+
+    function withdrawFees(address _recipient, address[] calldata _approvedTokens) external onlyGovernor {
+        uint256[] memory erc20FeesPaid = new uint256[](_approvedTokens.length);
+        // get all erc20
+        for(uint i; i < _approvedTokens.length; ++i) {
+            if(!isApprovedToken[_approvedTokens[i]]) revert Marketplace__UnapprovedToken();
+            uint256 erc20Fees = txFeesPaid[_approvedTokens[i]] + commissionFees[_approvedTokens[i]];
+            erc20FeesPaid[i] = erc20Fees;
+            txFeesPaid[_approvedTokens[i]] = 0;
+            commissionFees[_approvedTokens[i]] = 0;
+            if(erc20Fees > 0) {
+                bool erc20success = IERC20(_approvedTokens[i]).transfer(_recipient, erc20Fees);
+                if(!erc20success) revert Marketplace__TransferFailed();
+            }
+        }
+        // get all matic
+        uint256 nativeFees = txFeesPaid[address(0)] + commissionFees[address(0)];
+        txFeesPaid[address(0)] = 0;
+        commissionFees[address(0)] = 0;
+        if(nativeFees > 0) {
+            (bool success, ) = _recipient.call{value: nativeFees}("");
+            if(!success) revert Marketplace__TransferFailed();
+        }
+        emit FeesWithdrawn(_recipient, nativeFees, _approvedTokens, erc20FeesPaid);
     }
 
     ///////////////////
