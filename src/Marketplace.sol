@@ -75,7 +75,6 @@ contract Marketplace {
 
     struct ChangeOrder {
         uint256 projectId;
-        // uint256 changeOrderId;
         uint256 dateProposed;
         address proposedBy;
         uint256 adjustedProjectFee;
@@ -88,10 +87,46 @@ contract Marketplace {
     mapping(uint256 => ChangeOrder) private changeOrders; // projectId => ChangeOrder - only one active per project allowed
     mapping(uint256 => uint256) private arbitrationCases; // project ID => court petition ID 
 
-    // After Challenge or Discontinuation --> time to complete a Change Order
-    uint24 public constant CHANGE_ORDER_PERIOD = 7 days;
-    // After COURT rules --> loser has time to make counter offer or appeal 
-    uint24 public constant APPEAL_PERIOD = 7 days;
+    //////////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////
+    //////////////////////////////////////////////////
+    //////////////////////////////////////////////////
+    //////////////////////////////////////////
+    //////////////////////////////////////////
+    //////////////////////////////////////////
+    /// NOTE: the following time variables have been made changeable for in-house testing
+
+    // // After Challenge or Discontinuation --> time to complete a Change Order
+    // uint24 public constant CHANGE_ORDER_PERIOD = 7 days;
+    // // After COURT rules --> loser has time to make counter offer or appeal 
+    // uint24 public constant APPEAL_PERIOD = 7 days;
+
+    uint24 public CHANGE_ORDER_PERIOD = 7 days;
+    uint24 public APPEAL_PERIOD = 7 days;
+
+    function setChangeOrderPeriod(uint24 _newPeriod) public {
+        CHANGE_ORDER_PERIOD = _newPeriod;
+    }
+    function setAppealPeriod(uint24 _newPeriod) public {
+        APPEAL_PERIOD = _newPeriod;
+    }
+
+    // The testing changes end here. Be sure to make the time variables constant (un-comment above) before continuing
+    //////////////////////////////////////////
+    //////////////////////////////////////////
+    //////////////////////////////////////////
+    //////////////////////////////////////////////////
+    //////////////////////////////////////////////////
+    //////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////
+
 
     event NebulaiTxFeeChanged(uint256 txFee);
     event ERC20Approved(address token);
@@ -401,6 +436,9 @@ contract Marketplace {
         return petitionId;
     }
 
+    /// @notice challenges the fairness of a court ruling by creating a new petition with a new jury
+    /// petition fee adjustments and details remain from original petition
+    /// @return ID of new petition created in Court contract 
     function appealRuling(uint256 _projectId) external returns (uint256) {
         Project storage p = projects[_projectId];
         if(msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();

@@ -437,11 +437,24 @@ contract CourtTest is Test, TestSetup {
         court.reclaimArbitrationFee(p.petitionId);
     }
 
-    // function test_appeal() public {
-    //     vm.pauseGasMetering();
-
-    //     vm.resumeGasMetering();
-    // }
+    function test_appeal() public {
+        vm.pauseGasMetering();
+        _petitionWithRevealedVotes(petitionId_MATIC);
+        vm.resumeGasMetering();
+        Court.Petition memory petition = court.getPetition(petitionId_MATIC);
+            // defendant (provider) appeals decision
+        vm.prank(petition.defendant);
+        uint256 appealPetitionId = marketplace.appealRuling(petition.projectId);
+        Court.Petition memory appealPetition = court.getPetition(appealPetitionId);
+        assertEq(uint(appealPetition.phase), uint(Court.Phase.Discovery));
+        assertEq(appealPetition.isAppeal, true);
+        // arbitration fee is for 5 jurors rather than 3
+        assertEq(appealPetition.arbitrationFee, court.jurorFlatFee() * 5);
+        // old petition is no longer tied to projectId in marketplace
+        assertFalse(marketplace.getArbitrationPetitionId(petition.projectId) == petition.petitionId);
+        // marketplace maps project ID to new petition
+        assertTrue(marketplace.getArbitrationPetitionId(petition.projectId) == appealPetition.petitionId);
+    }
 
     function test_dismissUnpaidCase() public {
         Court.Petition memory p = court.getPetition(petitionId_MATIC);

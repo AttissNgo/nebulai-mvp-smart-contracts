@@ -78,11 +78,54 @@ contract Court is VRFConsumerBaseV2 {
     // mapping(uint256 => bool) public hungJury; // by petitionId 
     mapping(address => uint256) private jurorFeeReimbursementOwed; // juror address => amount
 
-    // Time variables
-    uint24 public constant DISCOVERY_PERIOD = 7 days;
-    uint24 public constant JURY_SELECTION_PERIOD = 3 days;
-    uint24 public constant VOTING_PERIOD = 4 days;
-    uint24 public constant RULING_PERIOD = 3 days;
+    //////////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////
+    //////////////////////////////////////////////////
+    //////////////////////////////////////////////////
+    //////////////////////////////////////////
+    //////////////////////////////////////////
+    //////////////////////////////////////////
+    /// NOTE: the following time variables have been made changeable for in-house testing
+
+    // // Time variables
+    // uint24 public constant DISCOVERY_PERIOD = 7 days;
+    // uint24 public constant JURY_SELECTION_PERIOD = 3 days;
+    // uint24 public constant VOTING_PERIOD = 4 days;
+    // uint24 public constant RULING_PERIOD = 3 days;
+    
+    uint24 public DISCOVERY_PERIOD = 7 days;
+    uint24 public JURY_SELECTION_PERIOD = 3 days;
+    uint24 public VOTING_PERIOD = 4 days;
+    uint24 public RULING_PERIOD = 3 days;
+
+    function setDiscoveryPeriod(uint24 _newPeriod) public {
+        DISCOVERY_PERIOD = _newPeriod;
+    }
+    function setJurySelectionPeriod(uint24 _newPeriod) public {
+        JURY_SELECTION_PERIOD = _newPeriod;
+    }
+    function setVotingPeriod(uint24 _newPeriod) public {
+        VOTING_PERIOD = _newPeriod;
+    }
+    function setRulingPeriod(uint24 _newPeriod) public {
+        RULING_PERIOD = _newPeriod;
+    }
+
+    // The testing changes end here. Be sure to make the time variables constant (un-comment above) before continuing
+    //////////////////////////////////////////
+    //////////////////////////////////////////
+    //////////////////////////////////////////
+    //////////////////////////////////////////////////
+    //////////////////////////////////////////////////
+    //////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////
 
     event MarketplaceRegistered(address marketplace);
     event PetitionCreated(uint256 indexed petitionId, address marketplace, uint256 projectId);
@@ -295,11 +338,14 @@ contract Court is VRFConsumerBaseV2 {
         return petitionId;
     }
 
+    /// @notice creates new 'appeal' petition with project/dispute information from original petition 
+    /// arbitration fee is higher to compensate larger jury
+    /// @dev only callable from Marketplace appealRuling()
+    /// @return ID of new 'appeal' petition 
     function appeal(uint256 _projectId) external onlyMarketplace returns (uint256) {
         uint256 originalPetitionId = IMarketplace(msg.sender).getArbitrationPetitionId(_projectId); 
         if(originalPetitionId == 0) revert Court__PetitionDoesNotExist();
         Petition memory originalPetition = getPetition(originalPetitionId);
-        // if(originalPetition.petitionId == 0) revert Court__PetitionDoesNotExist();
         if(msg.sender != originalPetition.marketplace) revert Court__InvalidMarketplace();
         if(originalPetition.isAppeal) revert Court__RulingCannotBeAppealed();
         petitionIds.increment(); 
@@ -373,8 +419,6 @@ contract Court is VRFConsumerBaseV2 {
             else if(!petition.feePaidDefendant && msg.sender == petition.defendant) revert Court__ArbitrationFeeNotPaid();
             // else revert Court__ArbitrationFeeNotPaid();
         } else revert Court__ArbitrationFeeCannotBeReclaimed();
-
-
         if(feesHeld[_petitionId] != petition.arbitrationFee) revert Court__ArbitrationFeeAlreadyReclaimed();
         uint256 reclaimAmount = feesHeld[_petitionId];
         feesHeld[_petitionId] -= reclaimAmount;
@@ -399,6 +443,9 @@ contract Court is VRFConsumerBaseV2 {
         emit SettledExternally(petition.petitionId);
     }
 
+    /// @notice enters default judgement when one litigant has not paid arbitration fee within DISCOVERY_PERIOD
+    /// i.e. if plaintiff has paid arbitration fee, but defendant has not, function will grant petition
+    /// @dev if both parties have paid, phase will automatically advance to JurySelection and function will revert
     function requestDefaultJudgement(uint256 _petitionId) external {
         Petition storage petition = petitions[_petitionId];
         if(msg.sender != petition.plaintiff && msg.sender != petition.defendant) revert Court__OnlyLitigant();
@@ -409,7 +456,6 @@ contract Court is VRFConsumerBaseV2 {
             if(!petition.feePaidDefendant) revert Court__ArbitrationFeeNotPaid();
         }
         if(block.timestamp < petition.discoveryStart + DISCOVERY_PERIOD) revert Court__FeesNotOverdue();
-        // if(feesHeld[_petitionId] != petition.arbitrationFee) revert NebulaiCourt__ArbitrationFeeAlreadyReclaimed();
         (msg.sender == petition.plaintiff) ? petition.petitionGranted = true : petition.petitionGranted = false;
         petition.phase = Phase.DefaultJudgement;
         uint256 reclaimAmount = feesHeld[_petitionId];
