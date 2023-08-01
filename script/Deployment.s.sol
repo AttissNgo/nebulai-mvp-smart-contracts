@@ -22,6 +22,7 @@ contract DeploymentLocal is Script {
     VRFCoordinatorV2Mock public vrf;
     uint64 public subscriptionId;
 
+    NebulaiTestTokenFaucet public testToken;
     Governor public governor;
     Whitelist public whitelist;
     JuryPool public juryPool;
@@ -68,6 +69,8 @@ contract DeploymentLocal is Script {
         // !!!! 
         // DON'T FORGET TO REGISTER CONSUMER WITH CHAINLINK WHEN DEPLOYING ON MUMBAI!!!
         // !!!!
+        // deploy test token
+        testToken = new NebulaiTestTokenFaucet();
         // deploy governor
         governor = new Governor(admins, sigsRequired);
         // deploy whitelist
@@ -104,6 +107,11 @@ contract DeploymentLocal is Script {
             usdt.mint(users[i], 10000 ether);
         }
 
+        // supply all users with NEBTT
+        for(uint i; i < users.length; ++i) {
+            testToken.mint(users[1], 10000 ether);
+        }
+
         // whitelist all anvil addresses
         for(uint i; i < admins.length; ++i) {
             whitelist.approveAddress(admins[i]);
@@ -117,6 +125,8 @@ contract DeploymentLocal is Script {
         string memory obj1 = "some key";
         string memory usdtMockAddr = vm.serializeAddress(obj1, "USDTMockAddress", address(usdt));
         string memory vrfMockAddr = vm.serializeAddress(obj1, "VRFMockAddress", address(vrf));
+        
+        string memory testTokenAddr = vm.serializeAddress(obj1, "TestToken", address(testToken));
         string memory govAddr = vm.serializeAddress(obj1, "GovernorAddress", address(governor));
         string memory whitelistAddr = vm.serializeAddress(obj1, "WhitelistAddress", address(whitelist));
         string memory juryPoolAddr = vm.serializeAddress(obj1, "JuryPoolAddress", address(juryPool));
@@ -126,6 +136,8 @@ contract DeploymentLocal is Script {
 
         vm.writeJson(usdtMockAddr, "./deploymentInfo.json");
         vm.writeJson(vrfMockAddr, "./deploymentInfo.json");
+
+        vm.writeJson(testTokenAddr, "./deploymentInfo.json");
         vm.writeJson(govAddr, "./deploymentInfo.json");
         vm.writeJson(whitelistAddr, "./deploymentInfo.json");
         vm.writeJson(juryPoolAddr, "./deploymentInfo.json");
@@ -234,3 +246,6 @@ contract DeploymentMumbai is Script {
         vm.writeJson(marketplaceAddr, "./deploymentInfo.json");
     }
 }
+
+
+

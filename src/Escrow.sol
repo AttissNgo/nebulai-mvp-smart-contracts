@@ -109,7 +109,7 @@ contract Escrow {
         return false;
     }
 
-    function amountDue(address _user) private returns (uint256) {
+    function amountDue(address _user) public returns (uint256) {
         uint256 amount;
         IMarketplace marketplace = IMarketplace(MARKETPLACE);
         IMarketplace.Status status = marketplace.getProjectStatus(PROJECT_ID);
