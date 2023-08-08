@@ -94,6 +94,7 @@ contract DeploymentLocal is Script {
         escrowFactory = new EscrowFactory();
         // deploy marketplace
         approvedTokens.push(address(usdt));
+        approvedTokens.push(address(testToken));
         marketplace = new Marketplace(
             address(governor), 
             address(whitelist), 
@@ -107,9 +108,12 @@ contract DeploymentLocal is Script {
             usdt.mint(users[i], 10000 ether);
         }
 
-        // supply all users with NEBTT
+        // supply all addresses with NEBTT
+        for(uint i; i < admins.length; ++i) {
+            testToken.mint(admins[i], 10000 ether);
+        }
         for(uint i; i < users.length; ++i) {
-            testToken.mint(users[1], 10000 ether);
+            testToken.mint(users[i], 10000 ether);
         }
 
         // whitelist all anvil addresses
