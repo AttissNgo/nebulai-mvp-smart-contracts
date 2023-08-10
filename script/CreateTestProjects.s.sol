@@ -26,9 +26,25 @@ interface MarketplaceIface {
         uint256 _providerStakeForfeit,
         string memory _changeOrderDetailsURI 
     ) external;
+    function disputeProject(
+        uint256 _projectId,
+        uint256 _adjustedProjectFee,
+        uint256 _providerStakeForfeit
+    ) external returns (uint256);
+    function getArbitrationPetitionId(uint256 projectId) external view returns (uint256);
+    function projectIds() external view returns (uint256);
 }
 
-contract CreateTestProjects is Script {
+interface CourtIface {
+    function calculateArbitrationFee(bool isAppeal) external view returns (uint256);
+    function payArbitrationFee(uint256 _petitionId, string[] calldata _evidenceURIs) external payable;
+}
+
+interface VRFIface {
+    function fulfillRandomWords(uint256 _requestId, address _consumer) external;
+}
+
+contract TestProjectStorage is Script {
 
     uint256 projectFee = 100 ether;
     uint256 providerStake = 10 ether;
@@ -36,6 +52,7 @@ contract CreateTestProjects is Script {
     uint256 changeOrderProjectFee = 75 ether;
     uint256 changeOrderStakeForfeit = 5 ether;
     string changeOrderDetails = "changeOrderURI";
+    string[] evidence = ["evidence1URI", "evidence2URI"];
 
     uint256 pk_0 = vm.envUint("PK_ANVIL_0");
     uint256 pk_1 = vm.envUint("PK_ANVIL_1");
@@ -45,38 +62,48 @@ contract CreateTestProjects is Script {
     string json = vm.readFile("./deploymentInfo.json");
     bytes marketplaceJSON = vm.parseJson(json, "MarketplaceAddress");
     bytes testTokenJSON = vm.parseJson(json, "TestToken");
+    bytes courtJSON = vm.parseJson(json, "CourtAddress");
+    bytes vrfJSON = vm.parseJson(json, "VRFMockAddress");
     address marketplaceAddr = bytesToAddress(marketplaceJSON);
     address testTokenAddr = bytesToAddress(testTokenJSON);
+    address courtAddr = bytesToAddress(courtJSON);
+    address vrfMockAddr = bytesToAddress(vrfJSON);
 
     MarketplaceIface marketplace = MarketplaceIface(marketplaceAddr);
     IERC20 testToken = IERC20(testTokenAddr);
+    CourtIface court = CourtIface(courtAddr);
+    VRFIface vrf = VRFIface(vrfMockAddr);
 
     function bytesToAddress(bytes memory bys) private pure returns (address addr) {
         assembly {
             addr := mload(add(bys, 32))
         } 
     }
+}
+
+contract CreateTestProjects is Script, TestProjectStorage {
+
 
     function run() public {
 
-        vm.startBroadcast(pk_0); // create project (will stay as "Created Status")
+        // vm.startBroadcast(pk_0); // create project (will stay as "Created Status")
+        // uint256 txFee = marketplace.calculateNebulaiTxFee(projectFee);
+        // testToken.approve(marketplaceAddr, projectFee + txFee);
+        // uint256 projectId = marketplace.createProject(
+        //     anvil_1,
+        //     testTokenAddr,
+        //     projectFee,
+        //     providerStake,
+        //     block.timestamp + 7 days,
+        //     block.timestamp + 2 days,
+        //     detailsURI
+        // );
+        // vm.stopBroadcast();
+
+        vm.startBroadcast(pk_0); 
         uint256 txFee = marketplace.calculateNebulaiTxFee(projectFee);
         testToken.approve(marketplaceAddr, projectFee + txFee);
         uint256 projectId = marketplace.createProject(
-            anvil_1,
-            testTokenAddr,
-            projectFee,
-            providerStake,
-            block.timestamp + 7 days,
-            block.timestamp + 2 days,
-            detailsURI
-        );
-        vm.stopBroadcast();
-
-        vm.startBroadcast(pk_0); // create another project 
-        txFee = marketplace.calculateNebulaiTxFee(projectFee);
-        testToken.approve(marketplaceAddr, projectFee + txFee);
-        projectId = marketplace.createProject(
             anvil_1,
             testTokenAddr,
             projectFee,
@@ -94,7 +121,47 @@ contract CreateTestProjects is Script {
         vm.startBroadcast(pk_0); // challenge
         marketplace.challengeProject(projectId, changeOrderProjectFee, changeOrderStakeForfeit, changeOrderDetails);
         vm.stopBroadcast();
+    }
+}
 
+contract InitiateArbitration is Script, TestProjectStorage {
+
+    // make sure block timestamp has been advanced in anvil!
+
+    uint256 latestProjectId = marketplace.projectIds();
+
+    function run() public {
+        vm.startBroadcast(pk_0);
+        marketplace.disputeProject(
+            // 1,
+            latestProjectId,
+            changeOrderProjectFee, 
+            changeOrderStakeForfeit
+        );
+        vm.stopBroadcast();
+    }
+}
+
+contract PayArbitrationFees is Script, TestProjectStorage {
+
+    uint256 latestProjectId = marketplace.projectIds();
+
+    function run() public {
+        uint256 arbitrationFee = court.calculateArbitrationFee(false);
+        uint256 petitionId = marketplace.getArbitrationPetitionId(latestProjectId);
+        vm.startBroadcast(pk_0);
+        court.payArbitrationFee{value: arbitrationFee}(petitionId, evidence);
+        vm.stopBroadcast();
+        vm.startBroadcast(pk_1);
+        court.payArbitrationFee{value: arbitrationFee}(petitionId, evidence);
+        // VmSafe.Log[] memory entries = vm.getRecordedLogs(); 
+        // uint256 requestId = uint(bytes32(entries[1].));
+        // // uint256 requestId = uint(bytes32(entries[2].data));
+        vm.stopBroadcast();
+
+        vm.startBroadcast(pk_0);
+        vrf.fulfillRandomWords(latestProjectId, courtAddr);
+        vm.stopBroadcast();
     }
 }
 

@@ -283,6 +283,64 @@ contract Court is VRFConsumerBaseV2 {
             }
         }
         emit JuryDrawn(petition.petitionId, isRedraw);   
+
+            // // this works with scripts
+        // Petition storage petition = petitions[vrfRequestToPetition[requestId]];
+        // petition.selectionStart = block.timestamp;
+        // Jury storage jury = juries[petition.petitionId];
+        // jury.drawnJurors = [
+        //     0x14dC79964da2C08b23698B3D3cc7Ca32193d9955,
+        //     0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f,
+        //     0xa0Ee7A142d267C1f36714E4a8F75612F20a79720
+        // ];
+
+            // // This also works
+        // Petition storage petition = petitions[vrfRequestToPetition[requestId]];
+        // bool isRedraw;   
+        // if(petition.selectionStart != 0) isRedraw = true;
+        // Jury storage jury = juries[petition.petitionId];
+        // // uint256 numNeeded = jurorsNeeded(petition.petitionId) * 3; // will draw 3x jurors needed
+        // uint256 numNeeded = jurorsNeeded(petition.petitionId); // will draw 3x jurors needed
+        // // if(isRedraw) numNeeded = jurorsNeeded(petition.petitionId) * 2;
+        // if(isRedraw) numNeeded = jurorsNeeded(petition.petitionId);
+        // address[] memory jurorsDrawn = new address[](numNeeded);
+        // uint256 nonce = 0;
+        // uint256 numSelected = 0;
+        // uint256 poolSize = juryPool.juryPoolSize();
+        // while (numSelected < numNeeded) {
+        //     IJuryPool.Juror memory drawnJuror = juryPool.getJuror(
+        //         uint256(keccak256(abi.encodePacked(randomWords[0], nonce))) % poolSize
+        //     );
+        //     bool isInvalid = false;
+        //     if(
+        //         drawnJuror.jurorStatus != IJuryPool.JurorStatus.Active ||
+        //         drawnJuror.jurorAddress == petition.plaintiff ||
+        //         drawnJuror.jurorAddress == petition.defendant
+        //     ) isInvalid = true;
+        //     for(uint i; i < jurorsDrawn.length; ++i) {
+        //         if(jurorsDrawn[i] == drawnJuror.jurorAddress) isInvalid = true; 
+        //     }
+        //     // if redraw check against already drawn jurors as well
+        //     if(isRedraw) {
+        //         for(uint i; i < jury.drawnJurors.length; ++i) {
+        //             if(jury.drawnJurors[i] == drawnJuror.jurorAddress) isInvalid = true;
+        //         }
+        //     }
+        //     if(!isInvalid) {
+        //         jurorsDrawn[numSelected] = drawnJuror.jurorAddress;
+        //         ++numSelected;
+        //     }
+        //     ++nonce;
+        // }
+        // if(!isRedraw) {
+        //     petition.selectionStart = block.timestamp;
+        //     jury.drawnJurors = jurorsDrawn;
+        // } else {
+        //     for(uint i; i < jurorsDrawn.length; ++i) {
+        //         jury.drawnJurors.push(jurorsDrawn[i]);
+        //     }
+        // }
+        // emit JuryDrawn(petition.petitionId, isRedraw);   
     }
 
     function _weightedDrawing(
