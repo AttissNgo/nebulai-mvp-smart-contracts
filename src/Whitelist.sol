@@ -37,13 +37,6 @@ contract Whitelist {
         emit Whitelisted(_address);
     }
 
-    // function revokeApproval(address _address) external onlyGovernor {
-    //     if(!approvedAddresses[_address]) revert Whitelist__NotApproved();
-    //     approvedAddresses[_address] = false;
-    //     emit ApprovalRevoked(_address);
-    // }
-    // changed to onlyAdmin for MVP testing
-
     function revokeApproval(address _address) external onlyAdmin {
         if(!approvedAddresses[_address]) revert Whitelist__NotApproved();
         approvedAddresses[_address] = false;

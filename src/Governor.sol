@@ -7,6 +7,9 @@ contract Governor {
     address[] public admins;
     mapping(address => bool) public isAdmin;
 
+    /**
+     * @notice data structure used to make function calls and send native currency
+     */
     struct Transaction {
         address to;
         uint256 value;
@@ -77,6 +80,10 @@ contract Governor {
     fallback() external payable {}
     receive() external payable {}
 
+    /**
+     * @notice create a Transaction object which will be executed when enough admins sign
+     * @dev caller automatically signs Transaction
+     */
     function proposeTransaction(
         address _to, 
         uint256 _value, 
@@ -99,6 +106,9 @@ contract Governor {
         return txIndex;
     }
 
+    /**
+     * @notice approve a Transaction - if approval reaches required signatures, Transaction will be executed
+     */
     function signTransaction(uint256 _txIndex) public onlyAdmin onlyActive(_txIndex) {
         if(hasSigned[_txIndex][msg.sender]) revert Governor__DuplicateSignature();
         Transaction storage transaction = transactions[_txIndex];
@@ -108,6 +118,10 @@ contract Governor {
         if(transaction.numSignatures >= signaturesRequired) executeTransaction(_txIndex);
     }
 
+    /**
+     * @dev used to manually execute transactions which were not executed automatically by signTransaction().
+     * For example, if the number of signatures required is reduced.
+     */
     function executeTransaction(uint256 _txIndex) public onlyAdmin onlyActive(_txIndex) {
         Transaction storage transaction = transactions[_txIndex];
         if(transaction.numSignatures < signaturesRequired) revert Governor__InsufficientSignatures();
@@ -118,6 +132,9 @@ contract Governor {
         emit TransactionExecuted(_txIndex, transaction.to, transaction.value, transaction.data);
     }
 
+    /**
+     * @notice remove signature from Transaction 
+     */
     function revokeSignature(uint256 _txIndex) public onlyAdmin onlyActive(_txIndex) {
         if(!hasSigned[_txIndex][msg.sender]) revert Governor__UserHasNotSigned();
         Transaction storage transaction = transactions[_txIndex];
@@ -126,6 +143,9 @@ contract Governor {
         emit SignatureRevoked(_txIndex, msg.sender, transaction.numSignatures);
     }
 
+    /**
+     * @notice Admin who initially proposed transaction may make it inactive
+     */
     function cancelTransaction(uint256 _txIndex) public onlyAdmin onlyActive(_txIndex) {
         Transaction storage transaction = transactions[_txIndex];
         if(msg.sender != transaction.proposedBy) revert Governor__OnlyProposerCanCancel();
@@ -133,33 +153,18 @@ contract Governor {
         emit TransactionCancelled(_txIndex);
     }
 
-    // function addAdmin(address _newAdmin, uint256 _newSigsRequired) public onlyGovernor {
-    //     require(_checkNumSigs(_newSigsRequired, admins.length + 1));
-    //     _addAdmin(_newAdmin);
-    //     signaturesRequired = _newSigsRequired;
-    //     emit AdminAdded(_newAdmin, _newSigsRequired);
-    // }
+    /**
+     * @notice add an address with admin permission 
+     */
     function addAdmin(address _newAdmin) public onlyGovernor {
         _addAdmin(_newAdmin);
         emit AdminAdded(_newAdmin);
     }
 
-    // function removeAdmin(address _toRemove, uint256 _newSigsRequired) public onlyGovernor {
-    //     require(_checkNumSigs(_newSigsRequired, admins.length - 1));
-    //     if(!isAdmin[_toRemove]) revert Governor__AddressIsNotAdmin();
-    //     isAdmin[_toRemove] = false;
-    //     for(uint i; i < admins.length; ++i) {
-    //         if(admins[i] == _toRemove) {
-    //             address temp = admins[admins.length - 1];
-    //             admins[i] = temp;
-    //             admins[admins.length - 1] = _toRemove;
-    //             admins.pop();
-    //         }  
-    //     }
-    //     signaturesRequired = _newSigsRequired;
-    //     emit AdminRemoved(_toRemove, _newSigsRequired);
-    // }
-
+    /**
+     * @notice remove admin permission 
+     * @dev will revert if removing an admin results less than two admins total
+     */
     function removeAdmin(address _toRemove) public onlyGovernor {
         if(!isAdmin[_toRemove]) revert Governor__AddressIsNotAdmin();
         if(admins.length - 1 < 2) revert Governor__TwoAdminMinimum();
@@ -178,6 +183,9 @@ contract Governor {
         emit AdminRemoved(_toRemove);
     }
 
+    /**
+     * @notice change the number of signatures needed to execute a Transaction
+     */
     function changeSignaturesRequired(uint256 _newSigsRequired) public onlyGovernor {
         require(_checkNumSigs(_newSigsRequired, admins.length));
         signaturesRequired = _newSigsRequired;

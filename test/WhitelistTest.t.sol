@@ -37,13 +37,15 @@ contract WhitelistTest is Test, TestSetup {
 
     function test_revokeApproval() public {
         test_approveAddress(); // alice is approved
-        bytes memory data = abi.encodeWithSignature(
-            "revokeApproval(address)",
-            alice
-        );
+        // bytes memory data = abi.encodeWithSignature(
+        //     "revokeApproval(address)",
+        //     alice
+        // );
+        // vm.prank(admin1);
+        // uint256 txIndex = governor.proposeTransaction(address(whitelist), 0, data);
+        // util_executeGovernorTx(txIndex);
         vm.prank(admin1);
-        uint256 txIndex = governor.proposeTransaction(address(whitelist), 0, data);
-        util_executeGovernorTx(txIndex);
+        whitelist.revokeApproval(alice);
         assertEq(whitelist.isApproved(alice), false);
     }
 
