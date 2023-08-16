@@ -28,6 +28,8 @@ contract TestSetup is Test {
     Whitelist public whitelist;
 
     JuryPool public juryPool;
+    uint256 public minimumJurorStake = 20 ether;
+
     Court public court;
 
     EscrowFactory public escrowFactory;
@@ -80,7 +82,7 @@ contract TestSetup is Test {
         vrf.fundSubscription(subscriptionId, 100 ether);
         governor = new Governor(admins, sigsRequired);
         whitelist = new Whitelist(address(governor));
-        juryPool = new JuryPool(address(governor), address(whitelist));
+        juryPool = new JuryPool(address(governor), address(whitelist), minimumJurorStake);
 
         uint64 nonce = vm.getNonce(admin1);
         address predictedMarketplace = computeCreateAddress(admin1, nonce + 2);
