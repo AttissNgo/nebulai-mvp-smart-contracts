@@ -4,23 +4,15 @@ pragma solidity ^0.8.13;
 interface IJuryPool {
 
     enum JurorStatus {
-        Active, // the account can be drawn for cases
-        Paused, // the account cannot be drawn for cases (juror can re-activate - de-activated by self or due to inactivity)
-        Suspended // the account cannot be drawn for cases (under investigation - only governor can re-activate)
+        Active, 
+        Paused, 
+        Suspended 
     }
 
-    struct Juror {
-        address jurorAddress;
-        JurorStatus jurorStatus;
-        uint16 casesOffered;
-        uint16 casesCompleted;
-        uint8 majorityPercentage;
-    }
-
-    function fundJuryReserves() external payable;
-    function getJuror(uint256 _index) external view returns (Juror memory);
+    function fundJuryReserve() external payable;
+    function getJuror(uint256 _index) external view returns (address);
     function juryPoolSize() external view returns (uint256);
     function getJurorStatus(address _juror) external view returns (JurorStatus);
-    // function getJurorIndex(address _juror) external view returns (uint256);
+    function isEligible(address _juror) external view returns (bool);
     function getJurorStake(address _juror) external view returns (uint256);
 }

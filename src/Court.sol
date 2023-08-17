@@ -12,12 +12,11 @@ contract Court is VRFConsumerBaseV2 {
     using Counters for Counters.Counter;
 
     address public immutable GOVERNOR;
+    address public immutable MARKETPLACE;
     IJuryPool public juryPool;
 
-    mapping(address => bool) private registeredMarketplaces;
-
     // fees
-    uint256 public jurorFlatFee = 20 ether;
+    uint256 public jurorFlatFee = 20 ether; 
     mapping(uint256 => uint256) private feesHeld; // petition ID => arbitration fees held
     mapping(address => uint256) private feesToJuror;
 
@@ -30,20 +29,30 @@ contract Court is VRFConsumerBaseV2 {
     uint32 public numWords = 2; 
     mapping(uint256 => uint256) public vrfRequestToPetition; //  VRF request ID => petitionID
 
+    /**
+     * @notice the stage of a petition
+     * Discovery - evidence may be submitted (after paying arbitration fee)
+     * JurySelection - jury is drawn randomly and drawn jurors may accept the case
+     * Voting - jurors commit a hidden vote
+     * Ruling - jurors reveal their votes
+     * Verdict - all votes have been counted and a ruling is made
+     * DefaultJudgement - one party does not pay arbitration fee, petition is ruled in favor of paying party
+     * Dismissed - case is invalid and Marketplace reverts to original project conditions
+     * SettledExternally - case was settled by change order in Marketplace and arbitration does not progress
+     */
     enum Phase {
-        Discovery, // fees + evidence
-        JurySelection, // drawing jurors
-        Voting, // jurors must commit votes
-        Ruling, // jurors must reveal votes
+        Discovery,
+        JurySelection, 
+        Voting, 
+        Ruling, 
         Verdict,
-        DefaultJudgement, // one party doesn't pay - arbitration fee refunded - jury not drawn 
-        Dismissed, // case is invalid, Marketplace reverts to original project conditions
-        SettledExternally // case was settled by change order in marketplace (arbitration does not progress)
+        DefaultJudgement, 
+        Dismissed, 
+        SettledExternally 
     }
 
     struct Petition {
         uint256 petitionId;
-        address marketplace;
         uint256 projectId;
         uint256 adjustedProjectFee;
         uint256 providerStakeForfeit;
@@ -63,19 +72,18 @@ contract Court is VRFConsumerBaseV2 {
         string[] evidence;
     }
     Counters.Counter private petitionIds;
-    mapping(uint256 => Petition) private petitions; // by petitionId
+    mapping(uint256 => Petition) private petitions; // petitionId => Petition
 
     // JURY
     struct Jury {
         address[] drawnJurors;
         address[] confirmedJurors;
     }
-    mapping(uint256 => Jury) private juries; // by petitionId
+    mapping(uint256 => Jury) private juries; // petitionId => Jury
     mapping(address => mapping(uint256 => uint256)) private jurorStakes; // juror address => petitionId => stake
     mapping(address => mapping(uint256 => bytes32)) private commits; // juror address => petitionId => commit
-    mapping(address => mapping(uint256 => bool)) private votes;
-    mapping(address => mapping(uint256 => bool)) private hasRevealed;
-    // mapping(uint256 => bool) public hungJury; // by petitionId 
+    mapping(address => mapping(uint256 => bool)) private votes; // juror address => petitionId => vote
+    mapping(address => mapping(uint256 => bool)) private hasRevealed; 
     mapping(address => uint256) private jurorFeeReimbursementOwed; // juror address => amount
 
     //////////////////////////////////////////////////////////////////
@@ -127,9 +135,8 @@ contract Court is VRFConsumerBaseV2 {
     //////////////////////////////////////////////////////////
     //////////////////////////////////////////////////////////
 
-    event MarketplaceRegistered(address marketplace);
-    event PetitionCreated(uint256 indexed petitionId, address marketplace, uint256 projectId);
-    event AppealCreated(uint256 indexed petitionId, uint256 indexed originalPetitionId, address marketplace, uint256 projectId);
+    event PetitionCreated(uint256 indexed petitionId, uint256 projectId);
+    event AppealCreated(uint256 indexed petitionId, uint256 indexed originalPetitionId, uint256 projectId);
     event ArbitrationFeePaid(uint256 indexed petitionId, address indexed user);
     event JurySelectionInitiated(uint256 indexed petitionId, uint256 requestId);
     event AdditionalJurorDrawingInitiated(uint256 indexed petitionId, uint256 requestId);
@@ -150,14 +157,12 @@ contract Court is VRFConsumerBaseV2 {
     event DelinquentReveal(uint256 indexed petitionId, bool deadlocked);
     event CaseRestarted(uint256 indexed petitionId, uint256 requestId);
 
+    error Court__TransferFailed();
     // permissions
     error Court__OnlyGovernor();
     error Court__OnlyMarketplace();
     error Court__ProjectHasOpenPetition();
     error Court__OnlyLitigant();
-    error Court__InvalidMarketplace();
-    // config 
-    error Court__MarketplaceAlreadyRegistered();
     // petition
     error Court__ArbitrationFeeAlreadyPaid();
     error Court__ArbitrationFeeNotPaid();
@@ -193,15 +198,13 @@ contract Court is VRFConsumerBaseV2 {
     error Court__VoteHasNotBeenRevealed();
     error Court__NoJurorFeesOwed();
 
-    error Court__TransferFailed();
-
     modifier onlyGovernor() {
         if(msg.sender != GOVERNOR) revert Court__OnlyGovernor();
         _;
     }
 
     modifier onlyMarketplace() {
-        if(!isRegisteredMarketplace(msg.sender)) revert Court__OnlyMarketplace();
+        if(msg.sender != MARKETPLACE) revert Court__OnlyMarketplace();
         _;
     }
 
@@ -210,13 +213,7 @@ contract Court is VRFConsumerBaseV2 {
         address _juryPool,
         address _vrfCoordinatorV2, 
         uint64 _subscriptionId,
-        //////////////////////////////////////////////////////////////////////
-        //////////////////////////////////////////////////////////////////////
-        //////////////////////////////////////////////////////////////////////
         address _calculatedMarketplace
-        //////////////////////////////////////////////////////////////////////
-        //////////////////////////////////////////////////////////////////////
-        //////////////////////////////////////////////////////////////////////
     ) 
          VRFConsumerBaseV2(_vrfCoordinatorV2) 
     {
@@ -224,52 +221,41 @@ contract Court is VRFConsumerBaseV2 {
         juryPool = IJuryPool(_juryPool);
         VRF_COORDINATOR = VRFCoordinatorV2Interface(_vrfCoordinatorV2);
         subscriptionId = _subscriptionId;
-        //////////////////////////////////////////////////////////////////////
-        //////////////////////////////////////////////////////////////////////
-        //////////////////////////////////////////////////////////////////////
-        _registerMarketplace(_calculatedMarketplace);
-        //////////////////////////////////////////////////////////////////////
-        //////////////////////////////////////////////////////////////////////
-        //////////////////////////////////////////////////////////////////////
+        MARKETPLACE = _calculatedMarketplace;
     }
 
+    /**
+     * @dev callback from Chainlink VRF which draws jurors 
+     */
     function fulfillRandomWords(uint256 requestId, uint256[] memory randomWords) internal override {   
         Petition storage petition = petitions[vrfRequestToPetition[requestId]];
         bool isRedraw;   
         if(petition.selectionStart != 0) isRedraw = true;
         Jury storage jury = juries[petition.petitionId];
-        uint256 numNeeded = jurorsNeeded(petition.petitionId) * 3; // will draw 3x jurors needed
+        uint256 numNeeded = jurorsNeeded(petition.petitionId) * 3; 
         if(isRedraw) numNeeded = jurorsNeeded(petition.petitionId) * 2;
         address[] memory jurorsDrawn = new address[](numNeeded);
         uint256 nonce = 0;
         uint256 numSelected = 0;
         uint256 poolSize = juryPool.juryPoolSize();
         while (numSelected < numNeeded) {
-            IJuryPool.Juror memory jurorA = juryPool.getJuror(
-                uint256(keccak256(abi.encodePacked(randomWords[0], nonce))) % poolSize
-            );
-            IJuryPool.Juror memory jurorB = juryPool.getJuror(
-                uint256(keccak256(abi.encodePacked(randomWords[1], nonce))) % poolSize
-            );
-            IJuryPool.Juror memory drawnJuror = _weightedDrawing(jurorA, jurorB, randomWords[0]);
-
+            address jurorA = juryPool.getJuror(uint256(keccak256(abi.encodePacked(randomWords[0], nonce))) % poolSize);
+            address jurorB = juryPool.getJuror(uint256(keccak256(abi.encodePacked(randomWords[1], nonce))) % poolSize);
+            address drawnJuror = _weightedDrawing(jurorA, jurorB, randomWords[0]);
             bool isInvalid = false;
-            if(
-                drawnJuror.jurorStatus != IJuryPool.JurorStatus.Active ||
-                drawnJuror.jurorAddress == petition.plaintiff ||
-                drawnJuror.jurorAddress == petition.defendant
-            ) isInvalid = true;
+            if(!juryPool.isEligible(drawnJuror)) isInvalid = true;
+            if(drawnJuror == petition.plaintiff || drawnJuror == petition.defendant) isInvalid = true;
             for(uint i; i < jurorsDrawn.length; ++i) {
-                if(jurorsDrawn[i] == drawnJuror.jurorAddress) isInvalid = true; 
+                if(jurorsDrawn[i] == drawnJuror) isInvalid = true; 
             }
             // if redraw check against already drawn jurors as well
             if(isRedraw) {
                 for(uint i; i < jury.drawnJurors.length; ++i) {
-                    if(jury.drawnJurors[i] == drawnJuror.jurorAddress) isInvalid = true;
+                    if(jury.drawnJurors[i] == drawnJuror) isInvalid = true;
                 }
             }
             if(!isInvalid) {
-                jurorsDrawn[numSelected] = drawnJuror.jurorAddress;
+                jurorsDrawn[numSelected] = drawnJuror;
                 ++numSelected;
             }
             ++nonce;
@@ -285,18 +271,21 @@ contract Court is VRFConsumerBaseV2 {
         emit JuryDrawn(petition.petitionId, isRedraw);   
     }
 
+    /**
+     * @dev selects one of two randomly drawn jurors using weighted probability based on stake in jury pool
+     */
     function _weightedDrawing(
-        IJuryPool.Juror memory _jurorA, 
-        IJuryPool.Juror memory _jurorB, 
+        address _jurorA, 
+        address _jurorB, 
         uint256 _randomWord
     ) 
         internal 
         view 
-        returns (IJuryPool.Juror memory) 
+        returns (address) 
     {
-        uint256 stakeA = juryPool.getJurorStake(_jurorA.jurorAddress);
-        uint256 stakeB = juryPool.getJurorStake(_jurorB.jurorAddress);
-        IJuryPool.Juror memory drawnJuror = _jurorA;
+        uint256 stakeA = juryPool.getJurorStake(_jurorA);
+        uint256 stakeB = juryPool.getJurorStake(_jurorB);
+        address drawnJuror = _jurorA;
         if(stakeA > stakeB) {
             if(_randomWord % 100 >= (stakeA * 100)/(stakeA + stakeB)) drawnJuror = _jurorB;
         } else if(stakeB > stakeA) {
@@ -309,6 +298,11 @@ contract Court is VRFConsumerBaseV2 {
     ///   PETITION   ///
     ////////////////////
 
+    /**
+     * @notice creates a new petition
+     * @dev can only be called from Marketplace disputeProject()
+     * @return petitionId
+     */
     function createPetition(
         uint256 _projectId,
         uint256 _adjustedProjectFee,
@@ -325,7 +319,6 @@ contract Court is VRFConsumerBaseV2 {
         uint256 petitionId = petitionIds.current();
         Petition memory petition;
         petition.petitionId = petitionId;
-        petition.marketplace = msg.sender;
         petition.projectId = _projectId;
         petition.adjustedProjectFee = _adjustedProjectFee;
         petition.providerStakeForfeit = _providerStakeForfeit;
@@ -334,25 +327,25 @@ contract Court is VRFConsumerBaseV2 {
         petition.arbitrationFee = calculateArbitrationFee(false);
         petition.discoveryStart = block.timestamp;
         petitions[petitionId] = petition;
-        emit PetitionCreated(petitionId, msg.sender, _projectId);
+        emit PetitionCreated(petitionId, _projectId);
         return petitionId;
     }
 
-    /// @notice creates new 'appeal' petition with project/dispute information from original petition 
-    /// arbitration fee is higher to compensate larger jury
-    /// @dev only callable from Marketplace appealRuling()
-    /// @return ID of new 'appeal' petition 
+    /**
+     *  @notice creates new 'appeal' petition with project/dispute information from original petition 
+     * arbitration fee is higher to compensate larger jury
+     *  @dev can only be called from Marketplace appealRuling()
+     *  @return ID of new 'appeal' petition 
+     */
     function appeal(uint256 _projectId) external onlyMarketplace returns (uint256) {
         uint256 originalPetitionId = IMarketplace(msg.sender).getArbitrationPetitionId(_projectId); 
         if(originalPetitionId == 0) revert Court__PetitionDoesNotExist();
         Petition memory originalPetition = getPetition(originalPetitionId);
-        if(msg.sender != originalPetition.marketplace) revert Court__InvalidMarketplace();
         if(originalPetition.isAppeal) revert Court__RulingCannotBeAppealed();
         petitionIds.increment(); 
         uint256 petitionId = petitionIds.current();
         Petition memory petition;
         petition.petitionId = petitionId;
-        petition.marketplace = msg.sender;
         petition.projectId = _projectId;
         petition.adjustedProjectFee = originalPetition.adjustedProjectFee;
         petition.providerStakeForfeit = originalPetition.providerStakeForfeit;
@@ -362,16 +355,19 @@ contract Court is VRFConsumerBaseV2 {
         petition.isAppeal = true;
         petition.discoveryStart = block.timestamp;
         petitions[petitionId] = petition;
-        emit AppealCreated(petitionId, originalPetitionId, msg.sender, _projectId);
+        emit AppealCreated(petitionId, originalPetitionId, _projectId);
         return petitionId;
     }
 
     function calculateArbitrationFee(bool isAppeal) public view returns (uint256) {
-        // assumes 20 MATIC minimum per juror voting in majority 
         if(!isAppeal) return 3 * jurorFlatFee;
         else return 5 * jurorFlatFee;
     }
 
+    /**
+     * @notice pay arbitration fee and submit evidence
+     * @dev when both litigants have paid, random words will be requested from Chainlink and jury will be drawn
+     */
     function payArbitrationFee(uint256 _petitionId, string[] calldata _evidenceURIs) external payable {
         Petition storage petition = petitions[_petitionId];
         if(msg.sender != petition.plaintiff && msg.sender != petition.defendant) revert Court__OnlyLitigant();
@@ -393,6 +389,10 @@ contract Court is VRFConsumerBaseV2 {
         }
     }
 
+    /**
+     * @notice allows litigants who have paid arbitration fee to submit additional evidence
+     * evidence can only be submitted during Discovery and Jury Selection
+     */
     function submitAdditionalEvidence(uint256 _petitionId, string[] calldata _evidenceURIs) external {
         Petition storage petition = petitions[_petitionId];
         if(msg.sender != petition.plaintiff && msg.sender != petition.defendant) revert Court__OnlyLitigant();
@@ -408,6 +408,9 @@ contract Court is VRFConsumerBaseV2 {
         }
     }
 
+    /**
+     * @notice prevailing party may reclaim arbitration fee
+     */
     function reclaimArbitrationFee(uint256 _petitionId) external {
         Petition memory petition = getPetition(_petitionId);
         if(msg.sender != petition.plaintiff && msg.sender != petition.defendant) revert Court__OnlyLitigant();
@@ -417,7 +420,6 @@ contract Court is VRFConsumerBaseV2 {
         } else if (petition.phase == Phase.SettledExternally) {
             if(!petition.feePaidPlaintiff && msg.sender == petition.plaintiff) revert Court__ArbitrationFeeNotPaid();
             else if(!petition.feePaidDefendant && msg.sender == petition.defendant) revert Court__ArbitrationFeeNotPaid();
-            // else revert Court__ArbitrationFeeNotPaid();
         } else revert Court__ArbitrationFeeCannotBeReclaimed();
         if(feesHeld[_petitionId] != petition.arbitrationFee) revert Court__ArbitrationFeeAlreadyReclaimed();
         uint256 reclaimAmount = feesHeld[_petitionId];
@@ -427,16 +429,21 @@ contract Court is VRFConsumerBaseV2 {
         emit ArbitrationFeeReclaimed(_petitionId, msg.sender, reclaimAmount);
     }
 
+    /**
+     * @notice a dismissed case will return to original project fee amount in Marketplace
+     */
     function dismissUnpaidCase(uint256 _petitionId) public {
         Petition storage petition = petitions[_petitionId];
         if(petition.petitionId == 0) revert Court__PetitionDoesNotExist();
-        // if(!IMarketplace(petition.marketplace).isDisputed(petition.projectId)) revert Court__ProjectIsNotDisputed();
         if(block.timestamp < petition.discoveryStart + DISCOVERY_PERIOD) revert Court__FeesNotOverdue();
         if(petition.feePaidPlaintiff || petition.feePaidDefendant) revert Court__ArbitrationFeeAlreadyPaid();
         petition.phase = Phase.Dismissed;
         emit CaseDismissed(_petitionId);
     } 
 
+    /**
+     * @dev called automatically by Marketplace when a change order is approved on a disputed Project
+     */
     function settledExternally(uint256 _petitionId) external onlyMarketplace {
         Petition storage petition = petitions[_petitionId];
         petition.phase = Phase.SettledExternally;
@@ -543,7 +550,7 @@ contract Court is VRFConsumerBaseV2 {
         }
         feesHeld[_petitionId] -= petition.arbitrationFee;
         if(remainingFees > 0) {
-            juryPool.fundJuryReserves{value: remainingFees}();
+            juryPool.fundJuryReserve{value: remainingFees}();
         }
         // verdictRendered[_petitionId] = block.timestamp;
         uint256 majorityVotes;
@@ -648,7 +655,7 @@ contract Court is VRFConsumerBaseV2 {
         if(uint(getCommit(_juror, _petitionId)) != 0) revert Court__NoDelinquentCommit();
         uint256 stakeForfeit = getJurorStakeHeld(_juror, _petitionId);
         jurorStakes[_juror][_petitionId] -= stakeForfeit;
-        juryPool.fundJuryReserves{value: stakeForfeit}();
+        juryPool.fundJuryReserve{value: stakeForfeit}();
         Jury storage jury = juries[_petitionId];
         for(uint i; i < jury.confirmedJurors.length; ++i) {
             if(jury.confirmedJurors[i] == _juror) {
@@ -702,7 +709,7 @@ contract Court is VRFConsumerBaseV2 {
                     emit JurorFeeReimbursementOwed(petition.petitionId, jury.confirmedJurors[i], jurorFee);
                 }
             } 
-            juryPool.fundJuryReserves{value: stakeForfeit}(); 
+            juryPool.fundJuryReserve{value: stakeForfeit}(); 
             _restartDeadlockedCase(_petitionId);
         }  
         emit DelinquentReveal(petition.petitionId, caseDeadlocked);      
@@ -721,23 +728,6 @@ contract Court is VRFConsumerBaseV2 {
     ///   GOVERNANCE   ///
     //////////////////////
 
-    function registerMarketplace(address _marketplace) external onlyGovernor {
-        _registerMarketplace(_marketplace);
-        emit MarketplaceRegistered(_marketplace);
-    }
-
-    /////////////////////////////////////////////////////////////////////////
-    /////////////////////////////////////////////////////////////////////////
-    /////////////////////////////////////////////////////////////////////////
-    function _registerMarketplace(address _marketplace) private {
-        if(registeredMarketplaces[_marketplace]) revert Court__MarketplaceAlreadyRegistered();
-        registeredMarketplaces[_marketplace] = true;
-    }
-    /////////////////////////////////////////////////////////////////////////
-    /////////////////////////////////////////////////////////////////////////
-    /////////////////////////////////////////////////////////////////////////
-
-
     function setJurorFlatFee(uint256 _flatFee) external onlyGovernor {
         jurorFlatFee = _flatFee;
     }
@@ -752,10 +742,6 @@ contract Court is VRFConsumerBaseV2 {
 
     function getFeesHeld(uint256 _petitionId) public view returns (uint256) {
         return feesHeld[_petitionId];
-    }
-
-    function isRegisteredMarketplace(address _marketplace) public view returns (bool) {
-        return registeredMarketplaces[_marketplace];
     }
 
     function getJury(uint256 _petitionId) public view returns (Jury memory) {

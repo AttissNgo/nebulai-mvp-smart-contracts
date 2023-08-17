@@ -26,6 +26,7 @@ contract DeploymentLocal is Script {
     Governor public governor;
     Whitelist public whitelist;
     JuryPool public juryPool;
+    uint256 public minimumJurorStake = 20 ether;
     Court public court;
     EscrowFactory public escrowFactory;
     Marketplace public marketplace;
@@ -109,7 +110,7 @@ contract DeploymentLocal is Script {
         // deploy whitelist
         whitelist = new Whitelist(address(governor));
         // deploy jury pool
-        juryPool = new JuryPool(address(governor), address(whitelist));
+        juryPool = new JuryPool(address(governor), address(whitelist), minimumJurorStake);
         // calculate future marketplace address
         uint64 nonce = vm.getNonce(vm.addr(pk_0));
         // console.log(nonce);
@@ -191,6 +192,7 @@ contract DeploymentMumbai is Script {
     Governor public governor;
     Whitelist public whitelist;
     JuryPool public juryPool;
+    uint256 public minimumJurorStake = 1 ether;
     Court public court;
     EscrowFactory public escrowFactory;
     Marketplace public marketplace;
@@ -238,7 +240,7 @@ contract DeploymentMumbai is Script {
         // deploy whitelist
         whitelist = new Whitelist(address(governor));
         // deploy jury pool
-        juryPool = new JuryPool(address(governor), address(whitelist));
+        juryPool = new JuryPool(address(governor), address(whitelist), minimumJurorStake);
         // calculate future marketplace address
         uint64 nonce = vm.getNonce(vm.addr(pk_0));
         // console.log(nonce);

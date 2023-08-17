@@ -6,14 +6,14 @@ import "./TestSetup.t.sol";
 
 contract JuryPoolTest is Test, TestSetup {
 
-    event JurorRegistered(address indexed juror, uint256 jurorIndex);
-    event JurorPaused(address indexed juror, uint256 jurorIndex);
-    event JurorReactivated(address indexed juror, uint256 indexed index);
-    event JurorSuspended(address indexed juror, uint256 indexed index);
+    event JurorRegistered(address indexed juror);
+    event JurorPaused(address indexed juror);
+    event JurorReactivated(address indexed juror);
+    event JurorSuspended(address indexed juror);
     event StakeWithdrawn(address indexed juror, uint256 withdrawAmount, uint256 totalStake);
     event Staked(address indexed juror, uint256 stakeAmount, uint256 totalStake);
-    event JuryReservesFunded(uint256 amount, address from);
-    event JuryReservesWithdrawn(address recipient, uint256 amount);
+    event JuryReserveFunded(uint256 amount, address from);
+    event JuryReserveWithdrawn(address recipient, uint256 amount);
 
     function setUp() public {
         _setUp();
@@ -27,17 +27,14 @@ contract JuryPoolTest is Test, TestSetup {
         uint256 minStake = juryPool.minimumStake();
         uint256 stakeBefore = juryPool.getJurorStake(alice);
         vm.expectEmit(true, false, false, false);
-        emit JurorRegistered(alice, 42);
+        emit JurorRegistered(alice);
         vm.prank(alice);
-        uint256 index = juryPool.registerAsJuror{value: minStake}();
+        juryPool.registerAsJuror{value: minStake}();
         assertEq(juryPool.getJurorStake(alice), stakeBefore + minStake);
         assertEq(juryPool.isJuror(alice), true);
-        assertEq(juryPool.getJurorIndex(alice), index);
         assertEq(juryPool.juryPoolSize(), poolSizeBefore + 1);
         assertEq(address(juryPool).balance, contractBalBefore + minStake);
-        JuryPool.Juror memory juror = juryPool.getJuror(index);
-        assertEq(juror.jurorAddress, alice);
-        assertEq(uint(juror.jurorStatus), uint(JuryPool.JurorStatus.Active));
+        assertEq(uint(juryPool.getJurorStatus(alice)), uint(JuryPool.JurorStatus.Active));
     }
 
     function test_registerAsJuror_reverts() public {
@@ -60,16 +57,14 @@ contract JuryPoolTest is Test, TestSetup {
         // setup - alice registers as juror
         uint256 minStake = juryPool.minimumStake();
         vm.prank(alice);
-        uint256 index = juryPool.registerAsJuror{value: minStake}();
-        JuryPool.Juror memory juror = juryPool.getJuror(index);
-        assertEq(uint(juror.jurorStatus), uint(JuryPool.JurorStatus.Active));
+        juryPool.registerAsJuror{value: minStake}();
+        assertEq(uint(juryPool.getJurorStatus(alice)), uint(JuryPool.JurorStatus.Active));
         // alice pauses
-        vm.expectEmit(true, false, false, true);
-        emit JurorPaused(alice, index);
+        vm.expectEmit(true, false, false, false);
+        emit JurorPaused(alice);
         vm.prank(alice);
         juryPool.pauseJuror();
-        juror = juryPool.getJuror(index);
-        assertEq(uint(juror.jurorStatus), uint(JuryPool.JurorStatus.Paused));
+        assertEq(uint(juryPool.getJurorStatus(alice)), uint(JuryPool.JurorStatus.Paused));
     }
 
     function test_pauseJuror_revert() public {
@@ -94,16 +89,15 @@ contract JuryPoolTest is Test, TestSetup {
         // setup - alice registers, then pauses 
         uint256 minStake = juryPool.minimumStake();
         vm.prank(alice);
-        uint256 index = juryPool.registerAsJuror{value: minStake}();
+        juryPool.registerAsJuror{value: minStake}();
         vm.prank(alice);
         juryPool.pauseJuror();
         // alice reactivates
-        vm.expectEmit(true, false, false, true);
-        emit JurorReactivated(alice, index);
+        vm.expectEmit(true, false, false, false);
+        emit JurorReactivated(alice);
         vm.prank(alice);
         juryPool.reactivateJuror();
-        JuryPool.Juror memory juror = juryPool.getJuror(index);
-        assertEq(uint(juror.jurorStatus), uint(JuryPool.JurorStatus.Active));
+        assertEq(uint(juryPool.getJurorStatus(alice)), uint(JuryPool.JurorStatus.Active));
     }
 
     function test_reactivateJuror_reverts() public {
@@ -115,6 +109,29 @@ contract JuryPoolTest is Test, TestSetup {
         vm.expectRevert(JuryPool.JuryPool__JurorAlreadyActive.selector);
         vm.prank(alice);
         juryPool.reactivateJuror();
+        // suspended
+        vm.prank(admin1);
+        bytes memory data = abi.encodeWithSignature("suspendJuror(address)", alice);
+        uint256 txIndex = governor.proposeTransaction(address(juryPool), 0, data);
+        util_executeGovernorTx(txIndex);
+        vm.expectRevert(JuryPool.JuryPool__JurorSuspended.selector);
+        vm.prank(alice);
+        juryPool.reactivateJuror();
+    }
+
+    function test_stake() public {
+        // setup - alice registers
+        uint256 minStake = juryPool.minimumStake();
+        vm.prank(alice);
+        juryPool.registerAsJuror{value: minStake}();
+        uint256 stakeBefore = juryPool.getJurorStake(alice);
+        // alice stakes more
+        uint256 stakeAmount = 10 ether;
+        vm.expectEmit(true, false, false, true);
+        emit Staked(alice, stakeAmount, stakeBefore + stakeAmount);
+        vm.prank(alice);
+        juryPool.stake{value: stakeAmount}();
+        assertEq(juryPool.getJurorStake(alice), stakeBefore + stakeAmount);
     }
 
     function test_withdrawStake() public {
@@ -142,39 +159,78 @@ contract JuryPoolTest is Test, TestSetup {
         vm.expectRevert(JuryPool.JuryPool__InsufficientStake.selector);
         vm.prank(alice); 
         juryPool.withdrawStake(minStake + 1);
+        // juror suspended 
+        vm.prank(admin1);
+        bytes memory data = abi.encodeWithSignature("suspendJuror(address)", alice);
+        uint256 txIndex = governor.proposeTransaction(address(juryPool), 0, data);
+        util_executeGovernorTx(txIndex);
+        vm.expectRevert(JuryPool.JuryPool__JurorSuspended.selector);
+        vm.prank(alice);
+        juryPool.withdrawStake(minStake);
     }
 
-    function test_stake() public {
+    function test_fundJuryReserve() public {
+        uint256 juryReserveBefore = juryPool.getJuryReserve();
+        uint256 amount = 10 ether;
+        vm.expectEmit(false, false, false, true);
+        emit JuryReserveFunded(amount, alice);
+        vm.prank(alice);
+        juryPool.fundJuryReserve{value: amount}();
+        assertEq(juryPool.getJuryReserve(), juryReserveBefore + amount);
+    }
+
+    function test_isEligible() public {
         // setup - alice registers
         uint256 minStake = juryPool.minimumStake();
         vm.prank(alice);
         juryPool.registerAsJuror{value: minStake}();
-        uint256 stakeBefore = juryPool.getJurorStake(alice);
-        // alice stakes more
-        uint256 stakeAmount = 10 ether;
-        vm.expectEmit(true, false, false, true);
-        emit Staked(alice, stakeAmount, stakeBefore + stakeAmount);
+        assertEq(juryPool.isEligible(alice), true);
+        // not registered
+        assertEq(juryPool.isJuror(bob), false);
+        assertEq(juryPool.isEligible(bob), false);
+        // not active
         vm.prank(alice);
-        juryPool.stake{value: stakeAmount}();
-        assertEq(juryPool.getJurorStake(alice), stakeBefore + stakeAmount);
+        juryPool.pauseJuror();
+        assertEq(juryPool.isEligible(alice), false);
+        // below minimum stake
+        vm.prank(alice);
+        juryPool.reactivateJuror();
+        vm.prank(alice);
+        juryPool.withdrawStake(1);
+        assertTrue(juryPool.getJurorStake(alice) < juryPool.minimumStake());
+        assertEq(juryPool.isEligible(alice), false);
+        // back to normal
+        vm.prank(alice);
+        juryPool.stake{value: 1}();
+        assertEq(juryPool.getJurorStake(alice), juryPool.minimumStake());
+        assertEq(juryPool.isEligible(alice), true);
     }
 
-    ////////////////
-    ///   ADMIN  ///
-    ////////////////
+    /////////////////////
+    ///   GOVERNANCE  ///
+    /////////////////////
+
+    function test_setMinimumStake() public {
+        assertEq(juryPool.minimumStake(), minimumJurorStake);
+        uint256 newMinStake = minimumJurorStake + 10 ether;
+        vm.prank(admin1);
+        bytes memory data = abi.encodeWithSignature("setMinimumStake(uint256)", newMinStake);
+        uint256 txIndex = governor.proposeTransaction(address(juryPool), 0, data);
+        util_executeGovernorTx(txIndex);
+        assertEq(juryPool.minimumStake(), newMinStake);
+    }
 
     function test_suspendJuror() public {
         // setup - alice registers
         uint256 minStake = juryPool.minimumStake();
         vm.prank(alice);
-        uint256 index = juryPool.registerAsJuror{value: minStake}();
+        juryPool.registerAsJuror{value: minStake}();
         // governor suspends alice 
         bytes memory data = abi.encodeWithSignature("suspendJuror(address)", alice);
         vm.prank(admin1);
         uint256 txIndex = governor.proposeTransaction(address(juryPool), 0, data);
         util_executeGovernorTx(txIndex);
-        JuryPool.Juror memory juror = juryPool.getJuror(index);
-        assertEq(uint(juror.jurorStatus), uint(JuryPool.JurorStatus.Suspended));
+        assertEq(uint(juryPool.getJurorStatus(alice)), uint(JuryPool.JurorStatus.Suspended));
     }
 
     function test_suspendJuror_revert() public {
@@ -190,7 +246,7 @@ contract JuryPoolTest is Test, TestSetup {
         governor.signTransaction(txIndex);
         // already suspended
         test_suspendJuror();
-        assertEq(uint(juryPool.getJuror(juryPool.getJurorIndex(alice)).jurorStatus), uint(JuryPool.JurorStatus.Suspended));
+        assertEq(uint(juryPool.getJurorStatus(alice)), uint(JuryPool.JurorStatus.Suspended));
         data = abi.encodeWithSignature("suspendJuror(address)", alice);
         vm.prank(admin1);
         txIndex = governor.proposeTransaction(address(juryPool), 0, data);
@@ -203,20 +259,21 @@ contract JuryPoolTest is Test, TestSetup {
 
     function test_reinstateJuror() public {
         // setup - alice registers, governor suspends
-        uint256 minStake = juryPool.minimumStake();
+        test_suspendJuror();
+        // cannot withdraw stake
+        uint256 aliceStake = juryPool.getJurorStake(alice);
+        vm.expectRevert(JuryPool.JuryPool__JurorSuspended.selector);
         vm.prank(alice);
-        uint256 index = juryPool.registerAsJuror{value: minStake}();
-        bytes memory data = abi.encodeWithSignature("suspendJuror(address)", alice);
+        juryPool.withdrawStake(aliceStake);
+        // reinstate
+        bytes memory data = abi.encodeWithSignature("reinstateJuror(address)", alice);
         vm.prank(admin1);
         uint256 txIndex = governor.proposeTransaction(address(juryPool), 0, data);
         util_executeGovernorTx(txIndex);
-        // reinstate
-        data = abi.encodeWithSignature("reinstateJuror(address)", alice);
-        vm.prank(admin1);
-        txIndex = governor.proposeTransaction(address(juryPool), 0, data);
-        util_executeGovernorTx(txIndex);
-        JuryPool.Juror memory juror = juryPool.getJuror(index);
-        assertEq(uint(juror.jurorStatus), uint(JuryPool.JurorStatus.Active));
+        assertEq(uint(juryPool.getJurorStatus(alice)), uint(JuryPool.JurorStatus.Active));
+        // now can withdraw stake
+        vm.prank(alice);
+        juryPool.withdrawStake(aliceStake);
     }
 
     function test_reinstateJuror_revert() public {
@@ -244,43 +301,31 @@ contract JuryPoolTest is Test, TestSetup {
         governor.signTransaction(txIndex);
     }
 
-    // set minimum stake
-
-    function test_fundJuryReserves() public {
-        uint256 juryReservesBefore = juryPool.getJuryReserves();
-        uint256 amount = 10 ether;
-        vm.expectEmit(false, false, false, true);
-        emit JuryReservesFunded(amount, alice);
-        vm.prank(alice);
-        juryPool.fundJuryReserves{value: amount}();
-        assertEq(juryPool.getJuryReserves(), juryReservesBefore + amount);
-    }
-
-    function test_withdrawJuryReserves() public {
+    function test_withdrawJuryReserve() public {
         uint256 fundAmount = 1000 ether;
         vm.prank(alice);
-        juryPool.fundJuryReserves{value: fundAmount}();
+        juryPool.fundJuryReserve{value: fundAmount}();
         uint256 withdrawAmount = fundAmount/2;
         uint256 recipientBalBefore = admin1.balance;
         uint256 contractBalBefore = address(juryPool).balance;
-        uint256 reservesBefore = juryPool.getJuryReserves();
-        bytes memory data = abi.encodeWithSignature("withdrawJuryReserves(address,uint256)", admin1, withdrawAmount);
+        uint256 reserveBefore = juryPool.getJuryReserve();
+        bytes memory data = abi.encodeWithSignature("withdrawJuryReserve(address,uint256)", admin1, withdrawAmount);
         vm.prank(admin1);
         uint256 txIndex = governor.proposeTransaction(address(juryPool), 0, data);
         vm.expectEmit(false, false, false, true);
-        emit JuryReservesWithdrawn(admin1, withdrawAmount);
+        emit JuryReserveWithdrawn(admin1, withdrawAmount);
         util_executeGovernorTx(txIndex);
         assertEq(admin1.balance, recipientBalBefore + withdrawAmount);
         assertEq(address(juryPool).balance, contractBalBefore - withdrawAmount);
-        assertEq(juryPool.getJuryReserves(), reservesBefore - withdrawAmount);
+        assertEq(juryPool.getJuryReserve(), reserveBefore - withdrawAmount);
     }
 
-    function test_withdrawJuryReserves_revert() public {
+    function test_withdrawJuryReserve_revert() public {
         uint256 fundAmount = 1000 ether;
         vm.prank(alice);
-        juryPool.fundJuryReserves{value: fundAmount}();
+        juryPool.fundJuryReserve{value: fundAmount}();
         // withdraw 0
-        bytes memory data = abi.encodeWithSignature("withdrawJuryReserves(address,uint256)", admin1, 0);
+        bytes memory data = abi.encodeWithSignature("withdrawJuryReserve(address,uint256)", admin1, 0);
         vm.prank(admin1);
         uint256 txIndex = governor.proposeTransaction(address(juryPool), 0, data);
         vm.prank(admin2);
@@ -289,7 +334,7 @@ contract JuryPoolTest is Test, TestSetup {
         vm.prank(admin3);
         governor.signTransaction(txIndex);
         // insufficient balance
-        data = abi.encodeWithSignature("withdrawJuryReserves(address,uint256)", admin1, juryPool.getJuryReserves() + 1);
+        data = abi.encodeWithSignature("withdrawJuryReserve(address,uint256)", admin1, juryPool.getJuryReserve() + 1);
         vm.prank(admin1);
         txIndex = governor.proposeTransaction(address(juryPool), 0, data);
         vm.prank(admin2);

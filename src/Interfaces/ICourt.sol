@@ -4,19 +4,18 @@ pragma solidity ^0.8.13;
 interface ICourt {
 
     enum Phase {
-        Discovery, // fees + evidence
-        JurySelection, // drawing jurors
-        Voting, // jurors must commit votes
-        Ruling, // jurors must reveal votes
+        Discovery, 
+        JurySelection, 
+        Voting, 
+        Ruling, 
         Verdict,
-        DefaultJudgement, // one party doesn't pay - arbitration fee refunded - jury not drawn 
-        Dismissed, // case is invalid, Marketplace reverts to original project conditions
-        SettledExternally // case was settled by change order in marketplace (arbitration does not progress)
+        DefaultJudgement, 
+        Dismissed, 
+        SettledExternally 
     }
 
     struct Petition {
         uint256 petitionId;
-        address marketplace;
         uint256 projectId;
         uint256 adjustedProjectFee;
         uint256 providerStakeForfeit;

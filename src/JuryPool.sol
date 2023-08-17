@@ -33,7 +33,7 @@ contract JuryPool {
     /**
      * @dev used to pay additional jurors if there is a problem with a case
      */
-    uint256 private juryReserves;
+    uint256 private juryReserve;
 
     event MinimumStakeSet(uint256 minimumStake);
     event JurorRegistered(address indexed juror);
@@ -43,8 +43,8 @@ contract JuryPool {
     event JurorReinstated(address indexed juror);
     event StakeWithdrawn(address indexed juror, uint256 withdrawAmount, uint256 totalStake);
     event Staked(address indexed juror, uint256 stakeAmount, uint256 totalStake);
-    event JuryReservesFunded(uint256 amount, address from);
-    event JuryReservesWithdrawn(address recipient, uint256 amount);
+    event JuryReserveFunded(uint256 amount, address from);
+    event JuryReserveWithdrawn(address recipient, uint256 amount);
 
     error JuryPool__OnlyGovernor();
     error JuryPool__OnlyWhitelisted();
@@ -58,7 +58,7 @@ contract JuryPool {
     error JuryPool__JurorNotSuspended();
     error JuryPool__InsufficientStake();
     error JuryPool__TransferFailed();
-    error JuryPool__InsufficientReserves();
+    error JuryPool__InsufficientReserve();
 
     modifier onlyGovernor() {
         if(msg.sender != GOVERNOR) revert JuryPool__OnlyGovernor();
@@ -134,12 +134,12 @@ contract JuryPool {
     }
 
     /**
-     * @notice reserves are used to pay additional jurors
+     * @notice reserve is used to pay additional jurors
      * @dev called by Court when juror does not perform (fails to commit or reveal) 
      */
-    function fundJuryReserves() external payable {
-        juryReserves += msg.value;
-        emit JuryReservesFunded(msg.value, msg.sender);
+    function fundJuryReserve() external payable {
+        juryReserve += msg.value;
+        emit JuryReserveFunded(msg.value, msg.sender);
     }
 
     //////////////////////
@@ -173,17 +173,17 @@ contract JuryPool {
     }
 
     /**
-     * @notice transfer MATIC from jury reserves
+     * @notice transfer MATIC from jury reserve
      * @param _recipient address to receive the transfer
      * @param _amount amount to transfer
      */
-    function withdrawJuryReserves(address _recipient, uint256 _amount) external onlyGovernor {
+    function withdrawJuryReserve(address _recipient, uint256 _amount) external onlyGovernor {
         require(_amount > 0);
-        if(_amount > juryReserves) revert JuryPool__InsufficientReserves();
-        juryReserves -= _amount;
+        if(_amount > juryReserve) revert JuryPool__InsufficientReserve();
+        juryReserve -= _amount;
         (bool success, ) = _recipient.call{value: _amount}("");
         if(!success) revert JuryPool__TransferFailed();
-        emit JuryReservesWithdrawn(_recipient, _amount);
+        emit JuryReserveWithdrawn(_recipient, _amount);
     }
 
     ///////////////////
@@ -213,8 +213,8 @@ contract JuryPool {
         return jurors.length;
     }
 
-    function getJuryReserves() public view returns (uint256) {
-        return juryReserves;
+    function getJuryReserve() public view returns (uint256) {
+        return juryReserve;
     }
 
 }

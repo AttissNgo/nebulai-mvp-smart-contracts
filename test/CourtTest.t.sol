@@ -227,7 +227,6 @@ contract CourtTest is Test, TestSetup {
     function test_createPetition() public {
         Court.Petition memory p = court.getPetition(petitionId_MATIC);
         assertEq(p.petitionId, petitionId_MATIC);
-        assertEq(p.marketplace, address(marketplace));
         assertEq(p.projectId, projectId_MATIC);
         assertEq(p.adjustedProjectFee, adjustedProjectFee);
         assertEq(p.providerStakeForfeit, 0);
@@ -804,7 +803,7 @@ contract CourtTest is Test, TestSetup {
         vm.resumeGasMetering();
 
         uint256 jurorFee = p.arbitrationFee / court.jurorsNeeded(p.petitionId);
-        uint256 juryReservesBefore = juryPool.getJuryReserves();
+        uint256 juryReserveBefore = juryPool.getJuryReserve();
         uint256 juror0_feesOwedBefore = court.getJurorFeesOwed(jury.confirmedJurors[0]);
         uint256 juror1_feesOwedBefore = court.getJurorFeesOwed(jury.confirmedJurors[1]);
         uint256 juror2_feesOwedBefore = court.getJurorFeesOwed(jury.confirmedJurors[2]); // minority vote, so should NOT change
@@ -822,7 +821,7 @@ contract CourtTest is Test, TestSetup {
         assertEq(court.getJurorFeesOwed(jury.confirmedJurors[0]), juror0_feesOwedBefore + jurorFee);
         assertEq(court.getJurorFeesOwed(jury.confirmedJurors[1]), juror1_feesOwedBefore + jurorFee);
         assertEq(court.getJurorFeesOwed(jury.confirmedJurors[2]), juror2_feesOwedBefore); // minoroty vote, no fee owed
-        assertEq(juryPool.getJuryReserves(), juryReservesBefore + jurorFee); // minority voter's fee has been added to jury reserves
+        assertEq(juryPool.getJuryReserve(), juryReserveBefore + jurorFee); // minority voter's fee has been added to jury reserve
     }
 
     function test_claimJurorFees() public {
@@ -931,13 +930,13 @@ contract CourtTest is Test, TestSetup {
         uint256 confirmedJurorsLengthBefore = jury.confirmedJurors.length;
         uint256 drawnJurorsLengthBefore = jury.drawnJurors.length;
         uint256 stakeForfeit = court.getJurorStakeHeld(delinquentJuror, petition.petitionId);
-        uint256 juryPoolBalBefore = juryPool.getJuryReserves();
+        uint256 juryPoolBalBefore = juryPool.getJuryReserve();
         vm.expectEmit(true, true, false, true);
         emit JurorRemoved(petition.petitionId, delinquentJuror, stakeForfeit);
         court.removeJurorNoCommit(petition.petitionId, delinquentJuror);    
         // juror stake has been forfeited and transfered to jury pool fund
         assertEq(court.getJurorStakeHeld(delinquentJuror, petition.petitionId), 0);
-        assertEq(juryPool.getJuryReserves(), juryPoolBalBefore + stakeForfeit);
+        assertEq(juryPool.getJuryReserve(), juryPoolBalBefore + stakeForfeit);
         // juror has been removed from jury
         jury = court.getJury(petition.petitionId);
         assertEq(jury.confirmedJurors.length, confirmedJurorsLengthBefore - 1);
@@ -970,7 +969,7 @@ contract CourtTest is Test, TestSetup {
         vm.resumeGasMetering();
         uint256 juror0_FeesOwedBefore = court.getJurorFeesOwed(jury.confirmedJurors[0]);
         uint256 juror1_FeesOwedBefore = court.getJurorFeesOwed(jury.confirmedJurors[1]);
-        uint256 juryPoolReservesBefore = juryPool.getJuryReserves();
+        uint256 juryPoolReserveBefore = juryPool.getJuryReserve();
         address delinquentJuror = jury.confirmedJurors[2];
         assertEq(court.getJurorStakeHeld(delinquentJuror, petition.petitionId), court.jurorFlatFee());
         vm.expectEmit(true, false, false, true);
@@ -980,7 +979,7 @@ contract CourtTest is Test, TestSetup {
         court.delinquentReveal(petition.petitionId);
         // juror2 has forfeitted stake
         assertEq(court.getJurorStakeHeld(delinquentJuror, petition.petitionId), 0);
-        assertEq(juryPool.getJuryReserves(), juryPoolReservesBefore + court.jurorFlatFee());
+        assertEq(juryPool.getJuryReserve(), juryPoolReserveBefore + court.jurorFlatFee());
         // verdict has been rendered 
         petition = court.getPetition(petition.petitionId);
         assertEq(petition.verdictRenderedDate, block.timestamp);
@@ -1009,7 +1008,7 @@ contract CourtTest is Test, TestSetup {
         uint256 deliquentJurorStakeBefore = court.getJurorStakeHeld(delinquentJuror, petition.petitionId);
         uint256 juror1_reimbursementBefore = court.getJurorFeeReimbursementOwed(jury.confirmedJurors[1]);
         uint256 juror2_reimbursementBefore = court.getJurorFeeReimbursementOwed(jury.confirmedJurors[2]);
-        uint256 juryPoolReservesBefore = juryPool.getJuryReserves();
+        uint256 juryPoolReserveBefore = juryPool.getJuryReserve();
         vm.expectEmit(true, true, false, true);
         emit JurorFeeReimbursementOwed(
             petition.petitionId, 
@@ -1036,8 +1035,8 @@ contract CourtTest is Test, TestSetup {
         assertEq(court.getJurorFeeReimbursementOwed(jury.confirmedJurors[2]), juror2_reimbursementBefore + court.jurorFlatFee());
         // delinquent juror has lost stake
         assertEq(court.getJurorStakeHeld(delinquentJuror, petition.petitionId), deliquentJurorStakeBefore - court.jurorFlatFee());
-        // forfettied stake has been transferred to pool reserves
-        assertEq(juryPool.getJuryReserves(), juryPoolReservesBefore + court.jurorFlatFee());
+        // forfettied stake has been transferred to pool reserve
+        assertEq(juryPool.getJuryReserve(), juryPoolReserveBefore + court.jurorFlatFee());
         // case has been restarted (with arbitration fees still in place)
         petition = court.getPetition(petition.petitionId);
         assertEq(uint(petition.phase), uint(Court.Phase.JurySelection));
