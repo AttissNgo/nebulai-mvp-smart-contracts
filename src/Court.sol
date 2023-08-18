@@ -450,9 +450,10 @@ contract Court is VRFConsumerBaseV2 {
         emit SettledExternally(petition.petitionId);
     }
 
-    /// @notice enters default judgement when one litigant has not paid arbitration fee within DISCOVERY_PERIOD
-    /// i.e. if plaintiff has paid arbitration fee, but defendant has not, function will grant petition
-    /// @dev if both parties have paid, phase will automatically advance to JurySelection and function will revert
+    /**
+     * @notice rules in favor of paying litigant when one litigant has not paid within DISCOVERY_PERIOD
+     * @dev if both litigants have paid, phase will have been advanced to JurySelection and function will revert
+     */
     function requestDefaultJudgement(uint256 _petitionId) external {
         Petition storage petition = petitions[_petitionId];
         if(msg.sender != petition.plaintiff && msg.sender != petition.defendant) revert Court__OnlyLitigant();
@@ -476,7 +477,11 @@ contract Court is VRFConsumerBaseV2 {
     ///   JURY   ///
     ////////////////
 
-    function _selectJury(uint256 _petitionId) private returns(uint256) {
+    /**
+     * @dev creates a request for random words from Chainlink VRF - called internally when jury selection is needed
+     * @return requestID from Chainlink VRF
+     */
+    function _selectJury(uint256 _petitionId) private returns (uint256) {
         uint256 requestId = VRF_COORDINATOR.requestRandomWords(
             keyHash, 
             subscriptionId, 
@@ -485,18 +490,17 @@ contract Court is VRFConsumerBaseV2 {
             numWords
         );
         vrfRequestToPetition[requestId] = _petitionId;
-        // Petition storage petition = petitions[_petitionId];
-        // petition.phase = Phase.JurySelection;
-        // emit JurySelectionInitiated(_petitionId, requestId);
         return requestId;
     }
 
-    // placeholder logic - need more comprehensive selection algorithm
     function jurorsNeeded(uint256 petitionId) public view returns (uint256) {
         if(petitions[petitionId].isAppeal) return 5;
         else return 3;
     } 
 
+    /**
+     * @dev called internally when enough jurors have accepted a case
+     */
     function _juryAssembled(uint256 _petitionId) private {
         Petition storage petition = petitions[_petitionId];
         petition.phase = Phase.Voting;
@@ -504,6 +508,9 @@ contract Court is VRFConsumerBaseV2 {
         emit VotingInitiated(_petitionId);
     }
 
+    /**
+     * @dev called internally when all jurors have committed their hidden votes
+     */
     function _allVotesCommitted(uint256 _petitionId) private {
         Petition storage petition = petitions[_petitionId];
         petition.phase = Phase.Ruling;
@@ -511,6 +518,11 @@ contract Court is VRFConsumerBaseV2 {
         emit RulingInitiated(_petitionId);
     }
 
+    /**
+     * @dev called internally when a juror votes or when delinquentReveal() is called
+     * @return votesFor number of votes in favor of petition
+     * @return votesAgainst number of votes against petition
+     */
     function _countVotes(uint256 _petitionId) private view returns (uint256, uint256) {
         Jury memory jury = getJury(_petitionId);
         uint256 votesFor;
@@ -523,6 +535,12 @@ contract Court is VRFConsumerBaseV2 {
         return(votesFor, votesAgainst);
     }
 
+    /**
+     * @notice jurors who voted in majority may claim juror fee, jurors in minority will not receive payment
+     * @dev called internally when there are enough votes to render a verdict
+     * i.e. all votes in normal case or enough votes for majority in the case of delinquent reveals
+     * @dev in the case of remaining arbitration fees, the remaining currency will be transferred to the Jury Reserve
+     */
     function _renderVerdict(
         uint256 _petitionId, 
         uint256 _votesFor, 
@@ -552,7 +570,6 @@ contract Court is VRFConsumerBaseV2 {
         if(remainingFees > 0) {
             juryPool.fundJuryReserve{value: remainingFees}();
         }
-        // verdictRendered[_petitionId] = block.timestamp;
         uint256 majorityVotes;
         (petition.petitionGranted) ? majorityVotes = _votesFor : majorityVotes = _votesAgainst;
         emit VerdictReached(_petitionId, petition.petitionGranted, majorityVotes);
@@ -562,6 +579,10 @@ contract Court is VRFConsumerBaseV2 {
     ///   JUROR ACTIONS   ///
     /////////////////////////
 
+    /**
+     * @notice drawn juror may accept a case by staking an amount equal to the jurorFlatFee
+     * @dev calls _juryAssembled() when enough jurors have accepted case
+     */
     function acceptCase(uint256 _petitionId) external payable {
         Jury storage jury = juries[_petitionId];
         if(jury.confirmedJurors.length >= jurorsNeeded(_petitionId)) revert Court__JurorSeatsFilled();
@@ -572,7 +593,7 @@ contract Court is VRFConsumerBaseV2 {
         if(juryPool.getJurorStatus(msg.sender) != IJuryPool.JurorStatus.Active) revert Court__InvalidJuror();
         bool isDrawnJuror;
         for(uint i; i < jury.drawnJurors.length; ++i) {
-            if(msg.sender == jury.drawnJurors[i]) {isDrawnJuror = true;}
+            if(msg.sender == jury.drawnJurors[i]) isDrawnJuror = true;
         }
         if(!isDrawnJuror) revert Court__NotDrawnJuror();
         jurorStakes[msg.sender][_petitionId] = msg.value;
@@ -583,6 +604,11 @@ contract Court is VRFConsumerBaseV2 {
         }
     }
 
+    /**
+     * @notice juror commits their hidden vote
+     * @dev calls _allVotesCommitted() when if call is the last commit needed
+     * @param _commit keccak256 hash of packed abi encoding of vote (bool) and juror's salt
+     */
     function commitVote(uint256 _petitionId, bytes32 _commit) external {
         if(uint(getCommit(msg.sender, _petitionId)) != 0) revert Court__JurorHasAlreadyCommmitedVote();
         if(uint(_commit) == 0) revert Court__InvalidCommit();
@@ -601,6 +627,12 @@ contract Court is VRFConsumerBaseV2 {
         }
     }
 
+    /**
+     * @notice juror reveals hidden vote and juror stake is returned
+     * @dev calls _renderVerdict() when all jurors have revealed
+     * @param _vote bool originally encoded in commit
+     * @param _salt string originally encoded in commit
+     */
     function revealVote(uint256 _petitionId, bool _vote, string calldata _salt) external {
         if(!isConfirmedJuror(_petitionId, msg.sender)) revert Court__InvalidJuror();
         if(getPetition(_petitionId).phase != Phase.Ruling) revert Court__CannotRevealBeforeAllVotesCommitted();
@@ -620,6 +652,9 @@ contract Court is VRFConsumerBaseV2 {
         }
     }
 
+    /**
+     * @notice withdraw fees earned for serving on jury
+     */
     function claimJurorFees() external {
         uint256 feesOwed = feesToJuror[msg.sender];
         if(feesOwed < 1) revert Court__NoJurorFeesOwed();
@@ -633,6 +668,10 @@ contract Court is VRFConsumerBaseV2 {
     ///   JURY EXCEPTIONS   ///
     ///////////////////////////
 
+    /**
+     * @notice draws additional jurors if not enough jurors have accepted case after JURY_SELECTION_PERIOD elapses
+     * @dev can only be called once per case
+     */
     function drawAdditionalJurors(uint256 _petitionId) external {
         Petition memory petition = getPetition(_petitionId);
         if(petition.phase != Phase.JurySelection) revert Court__OnlyDuringJurySelection();
@@ -645,9 +684,12 @@ contract Court is VRFConsumerBaseV2 {
         emit AdditionalJurorDrawingInitiated(petition.petitionId, requestId);
     }
 
+    /**
+     * @notice removes juror who does not commit vote within voting period
+     * @dev restarts voting period so remaining drawn jurors may accept case and vote
+     */
     function removeJurorNoCommit(uint256 _petitionId, address _juror) external {
         if(!isConfirmedJuror(_petitionId, _juror)) revert Court__InvalidJuror();
-        // Petition memory petition = getPetition(_petitionId);
         Petition storage petition = petitions[_petitionId];
         if(petition.phase != Phase.Voting || block.timestamp < petition.votingStart + VOTING_PERIOD) {
             revert Court__VotingPeriodStillActive();
@@ -683,6 +725,12 @@ contract Court is VRFConsumerBaseV2 {
         emit JurorRemoved(_petitionId, _juror, stakeForfeit);
     }
 
+    /**
+     * @notice called if a juror fails to reveal hidden vote
+     * juror's stake will be forfeitted and transferred to Jury Reserve
+     * if a majority can still be reached without the delinquent juror's vote, a verdict will be rendered
+     * if the votes are tied, an arbiter from Nebulai may be assigned to break the tie
+     */
     function delinquentReveal(uint256 _petitionId) external {
         Petition memory petition = getPetition(_petitionId);
         if(petition.phase != Phase.Ruling) revert Court__OnlyDuringRuling();

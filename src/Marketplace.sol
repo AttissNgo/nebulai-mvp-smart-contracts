@@ -436,8 +436,8 @@ contract Marketplace {
         return petitionId;
     }
 
-    /// @notice challenges the fairness of a court ruling by creating a new petition with a new jury
-    /// petition fee adjustments and details remain from original petition
+    /// @notice challenges the validity of a court ruling by creating a new petition with a new jury
+    /// petition details remain from original petition
     /// @return ID of new petition created in Court contract 
     function appealRuling(uint256 _projectId) external returns (uint256) {
         Project storage p = projects[_projectId];
