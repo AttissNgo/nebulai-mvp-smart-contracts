@@ -5,6 +5,7 @@ import "chainlink/VRFCoordinatorV2Interface.sol";
 import "chainlink/VRFConsumerBaseV2.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
+import "./Interfaces/IGovernor.sol";
 import "./Interfaces/IMarketplace.sol";
 import "./Interfaces/IJuryPool.sol";
 
@@ -18,7 +19,6 @@ contract Court is VRFConsumerBaseV2 {
     // fees
     uint256 public jurorFlatFee = 20 ether; 
     mapping(uint256 => uint256) private feesHeld; // petition ID => arbitration fees held
-    mapping(address => uint256) private feesToJuror;
 
     // randomness 
     VRFCoordinatorV2Interface public immutable VRF_COORDINATOR;
@@ -71,20 +71,22 @@ contract Court is VRFConsumerBaseV2 {
         Phase phase;
         string[] evidence;
     }
-    Counters.Counter private petitionIds;
-    mapping(uint256 => Petition) private petitions; // petitionId => Petition
 
-    // JURY
     struct Jury {
         address[] drawnJurors;
         address[] confirmedJurors;
     }
+
+    Counters.Counter private petitionIds;
+    mapping(uint256 => Petition) private petitions; // petitionId => Petition
     mapping(uint256 => Jury) private juries; // petitionId => Jury
     mapping(address => mapping(uint256 => uint256)) private jurorStakes; // juror address => petitionId => stake
     mapping(address => mapping(uint256 => bytes32)) private commits; // juror address => petitionId => commit
     mapping(address => mapping(uint256 => bool)) private votes; // juror address => petitionId => vote
     mapping(address => mapping(uint256 => bool)) private hasRevealed; 
-    mapping(address => uint256) private jurorFeeReimbursementOwed; // juror address => amount
+    mapping(address => uint256) private feesToJuror;
+    mapping(uint256 => bool) public votesTied;
+    mapping(uint256 => address) public arbiter;
 
     //////////////////////////////////////////////////////////////////
     //////////////////////////////////////////////////////////////////
@@ -140,6 +142,7 @@ contract Court is VRFConsumerBaseV2 {
     event ArbitrationFeePaid(uint256 indexed petitionId, address indexed user);
     event JurySelectionInitiated(uint256 indexed petitionId, uint256 requestId);
     event AdditionalJurorDrawingInitiated(uint256 indexed petitionId, uint256 requestId);
+    event AdditionalJurorsAssigned(uint256 indexed petitionId, address[] assignedJurors);
     event JuryDrawn(uint256 indexed petitionId, bool isRedraw);
     event JurorConfirmed(uint256 indexed petitionId, address jurorAddress);
     event VotingInitiated(uint256 indexed petitionId);
@@ -152,14 +155,15 @@ contract Court is VRFConsumerBaseV2 {
     event CaseDismissed(uint256 indexed petitionId);
     event SettledExternally(uint256 indexed petitionId);
     event DefaultJudgementEntered(uint256 indexed petitionId, address indexed claimedBy, bool verdict);
-    event JurorRemoved(uint256 indexed petitionId, address indexed juror, uint256 stakeForfeit);
-    event JurorFeeReimbursementOwed(uint256 indexed petitionId, address indexed juror, uint256 jurorFee);
+    event JurorRemoved(uint256 indexed petitionId, address indexed juror);
     event DelinquentReveal(uint256 indexed petitionId, bool deadlocked);
-    event CaseRestarted(uint256 indexed petitionId, uint256 requestId);
+    event ArbiterAssigned(uint256 indexed petitionId, address indexed arbiter);
+    event ArbiterVote(uint256 indexed petitionId, address indexed arbiter, bool vote);
 
     error Court__TransferFailed();
     // permissions
     error Court__OnlyGovernor();
+    error Court__OnlyAdmin();
     error Court__OnlyMarketplace();
     error Court__ProjectHasOpenPetition();
     error Court__OnlyLitigant();
@@ -179,11 +183,13 @@ contract Court is VRFConsumerBaseV2 {
     error Court__OnlyDuringJurySelection();
     error Court__InitialSelectionPeriodStillOpen();
     error Court__JuryAlreadyRedrawn();
+    error Court__JuryNotRedrawn();
     error Court__VotingPeriodStillActive();
-    error Court__NoDelinquentCommit();
+    error Court__NoDelinquentCommits();
     error Court__OnlyDuringRuling();
     error Court__RulingPeriodStillActive();
-    error Court__NoDelinquentReveals();
+    error Court__CaseNotDeadlocked();
+    error Court__InvalidArbiter();
     // juror actions
     error Court__JurorSeatsFilled();
     error Court__InvalidJuror();
@@ -333,7 +339,7 @@ contract Court is VRFConsumerBaseV2 {
 
     /**
      *  @notice creates new 'appeal' petition with project/dispute information from original petition 
-     * arbitration fee is higher to compensate larger jury
+     *  arbitration fee is higher to compensate larger jury
      *  @dev can only be called from Marketplace appealRuling()
      *  @return ID of new 'appeal' petition 
      */
@@ -538,7 +544,6 @@ contract Court is VRFConsumerBaseV2 {
     /**
      * @notice jurors who voted in majority may claim juror fee, jurors in minority will not receive payment
      * @dev called internally when there are enough votes to render a verdict
-     * i.e. all votes in normal case or enough votes for majority in the case of delinquent reveals
      * @dev in the case of remaining arbitration fees, the remaining currency will be transferred to the Jury Reserve
      */
     function _renderVerdict(
@@ -684,20 +689,84 @@ contract Court is VRFConsumerBaseV2 {
         emit AdditionalJurorDrawingInitiated(petition.petitionId, requestId);
     }
 
+    function assignAdditionalJurors(uint256 _petitionId, address[] calldata _additionalJurors) external {
+        if(!IGovernor(GOVERNOR).isAdmin(msg.sender)) revert Court__OnlyAdmin();
+        Petition memory petition = getPetition(_petitionId);
+        if(petition.phase != Phase.JurySelection) revert Court__OnlyDuringJurySelection();
+        if(block.timestamp < petition.selectionStart + JURY_SELECTION_PERIOD) {
+            revert Court__InitialSelectionPeriodStillOpen();
+        } 
+        Jury storage jury = juries[_petitionId];
+        if(!(jury.drawnJurors.length > jurorsNeeded(_petitionId) * 3)) revert Court__JuryNotRedrawn();
+        // must be valid jurors
+        for(uint i; i < _additionalJurors.length; ++i) {
+            if(isConfirmedJuror(petition.petitionId, _additionalJurors[i])) revert Court__InvalidJuror();
+            if(!juryPool.isEligible(_additionalJurors[i])) revert Court__InvalidJuror();
+            if(_additionalJurors[i] == petition.plaintiff || _additionalJurors[i] == petition.defendant) {
+                revert Court__InvalidJuror();
+            }
+            jury.drawnJurors.push(_additionalJurors[i]);
+        }
+        emit AdditionalJurorsAssigned(petition.petitionId, _additionalJurors);
+    }
+
     /**
      * @notice removes juror who does not commit vote within voting period
+     * transfers stake of delinquent juror to Jury Reserve
      * @dev restarts voting period so remaining drawn jurors may accept case and vote
      */
-    function removeJurorNoCommit(uint256 _petitionId, address _juror) external {
-        if(!isConfirmedJuror(_petitionId, _juror)) revert Court__InvalidJuror();
+    function delinquentCommit(uint256 _petitionId) external {
         Petition storage petition = petitions[_petitionId];
-        if(petition.phase != Phase.Voting || block.timestamp < petition.votingStart + VOTING_PERIOD) {
-            revert Court__VotingPeriodStillActive();
+        if(petition.phase != Phase.Voting) revert Court__NoDelinquentCommits();
+        if(block.timestamp < petition.votingStart + VOTING_PERIOD) revert Court__VotingPeriodStillActive();
+        Jury memory jury = getJury(petition.petitionId);
+        for(uint i; i < jury.confirmedJurors.length; ++i) {
+            if(uint(getCommit(jury.confirmedJurors[i], petition.petitionId)) == 0) {
+                uint256 stakeForfeit = getJurorStakeHeld(jury.confirmedJurors[i], petition.petitionId);
+                jurorStakes[jury.confirmedJurors[i]][petition.petitionId] -= stakeForfeit;
+                juryPool.fundJuryReserve{value: stakeForfeit}();
+                _removeJuror(petition.petitionId, jury.confirmedJurors[i]);
+            }
         }
-        if(uint(getCommit(_juror, _petitionId)) != 0) revert Court__NoDelinquentCommit();
-        uint256 stakeForfeit = getJurorStakeHeld(_juror, _petitionId);
-        jurorStakes[_juror][_petitionId] -= stakeForfeit;
-        juryPool.fundJuryReserve{value: stakeForfeit}();
+        petition.votingStart = block.timestamp;
+    }
+
+    /**
+     * @notice called if a juror fails to reveal hidden vote
+     * juror's stake will be forfeitted and transferred to Jury Reserve
+     * if a majority can still be reached without the delinquent juror's vote, a verdict will be rendered
+     * if the votes are tied, an arbiter may be assigned by Nebulai to break the tie
+     * @dev if all votes are revealed, phase will have advanced and function will revert
+     */
+    function delinquentReveal(uint256 _petitionId) external {
+        Petition memory petition = getPetition(_petitionId);
+        if(petition.phase != Phase.Ruling) revert Court__OnlyDuringRuling();
+        if(block.timestamp < petition.rulingStart + RULING_PERIOD) revert Court__RulingPeriodStillActive();
+        (uint256 votesFor, uint256 votesAgainst) = _countVotes(petition.petitionId);
+        uint256 votesNeeded = jurorsNeeded(petition.petitionId);
+        uint256 totalStakeForfeits; 
+        Jury memory jury = getJury(petition.petitionId);
+        for(uint i; i < jury.confirmedJurors.length; ++i) {
+            if(!hasRevealedVote(jury.confirmedJurors[i], petition.petitionId)) {
+                uint256 stakeForfeit = getJurorStakeHeld(jury.confirmedJurors[i], petition.petitionId);
+                jurorStakes[jury.confirmedJurors[i]][petition.petitionId] -= stakeForfeit;
+                totalStakeForfeits += stakeForfeit; 
+                _removeJuror(petition.petitionId, jury.confirmedJurors[i]);
+            }
+        }
+        if((votesFor > votesNeeded / 2) || (votesAgainst > votesNeeded / 2)) { 
+            _renderVerdict(petition.petitionId, votesFor, votesAgainst); 
+        } else { 
+            votesTied[petition.petitionId] = true;
+            juryPool.fundJuryReserve{value: totalStakeForfeits}(); 
+        }  
+        emit DelinquentReveal(petition.petitionId, votesTied[petition.petitionId]);      
+    }
+
+    /**
+     * @dev removes a juror from the jury of a petition. Called internally when a juror fails to commit or reveal.
+     */
+    function _removeJuror(uint256 _petitionId, address _juror) private {
         Jury storage jury = juries[_petitionId];
         for(uint i; i < jury.confirmedJurors.length; ++i) {
             if(jury.confirmedJurors[i] == _juror) {
@@ -721,55 +790,37 @@ contract Court is VRFConsumerBaseV2 {
                 }
             }
         }
-        petition.votingStart = block.timestamp; // restart voting period so there is time for new jurors to accept the case and vote
-        emit JurorRemoved(_petitionId, _juror, stakeForfeit);
+        emit JurorRemoved(_petitionId, _juror);
     }
 
     /**
-     * @notice called if a juror fails to reveal hidden vote
-     * juror's stake will be forfeitted and transferred to Jury Reserve
-     * if a majority can still be reached without the delinquent juror's vote, a verdict will be rendered
-     * if the votes are tied, an arbiter from Nebulai may be assigned to break the tie
+     * @notice assigns an arbiter to a deadlocked case to break the tie
+     * @dev can only be called by an admin address
      */
-    function delinquentReveal(uint256 _petitionId) external {
+    function assignArbiter(uint256 _petitionId, address _arbiter) external {
+        if(!IGovernor(GOVERNOR).isAdmin(msg.sender)) revert Court__OnlyAdmin();
         Petition memory petition = getPetition(_petitionId);
+        if(!votesTied[petition.petitionId]) revert Court__CaseNotDeadlocked();
         if(petition.phase != Phase.Ruling) revert Court__OnlyDuringRuling();
-        if(block.timestamp < petition.rulingStart + RULING_PERIOD) revert Court__RulingPeriodStillActive();
-        (uint256 votesFor, uint256 votesAgainst) = _countVotes(petition.petitionId);
-        uint256 votesNeeded = jurorsNeeded(petition.petitionId);
-        bool caseDeadlocked = false;
-        uint256 stakeForfeit; // find jurors who didn't reveal, collect stake amount in case of deadlock
-        Jury memory jury = getJury(petition.petitionId);
-        for(uint i; i < jury.confirmedJurors.length; ++i) {
-            if(!hasRevealedVote(jury.confirmedJurors[i], petition.petitionId)) {
-                stakeForfeit += getJurorStakeHeld(jury.confirmedJurors[i], petition.petitionId);
-                jurorStakes[jury.confirmedJurors[i]][petition.petitionId] -= stakeForfeit;
-            }
-        }
-        if((votesFor > votesNeeded / 2) || (votesAgainst > votesNeeded / 2)) { 
-            _renderVerdict(petition.petitionId, votesFor, votesAgainst); // if majority exists, render verdict as normal
-        } else { // if tied, record reimbursement for revealed jurors and restart case 
-            caseDeadlocked = true;
-            uint256 jurorFee = petition.arbitrationFee / jurorsNeeded(petition.petitionId);
-            for(uint i; i < jury.confirmedJurors.length; ++i) {
-                if(hasRevealedVote(jury.confirmedJurors[i], petition.petitionId)) {
-                    jurorFeeReimbursementOwed[jury.confirmedJurors[i]] += jurorFee;
-                    emit JurorFeeReimbursementOwed(petition.petitionId, jury.confirmedJurors[i], jurorFee);
-                }
-            } 
-            juryPool.fundJuryReserve{value: stakeForfeit}(); 
-            _restartDeadlockedCase(_petitionId);
-        }  
-        emit DelinquentReveal(petition.petitionId, caseDeadlocked);      
+        if(_arbiter == petition.plaintiff || _arbiter == petition.defendant) revert Court__InvalidArbiter();
+        if(!juryPool.isEligible(_arbiter)) revert Court__InvalidArbiter();
+        if(isConfirmedJuror(petition.petitionId, _arbiter)) revert Court__InvalidArbiter();
+        arbiter[petition.petitionId] = _arbiter;
+        emit ArbiterAssigned(petition.petitionId, _arbiter);
     }
 
-    function _restartDeadlockedCase(uint256 _petitionId) private {
-        Petition storage petition = petitions[_petitionId];
-        delete juries[petition.petitionId];
-        petition.selectionStart = 0; // will be reset by fulfillRandomWords() and we don't want the function to think it's a re-draw
-        uint256 requestId = _selectJury(petition.petitionId);
-        petition.phase = Phase.JurySelection;
-        emit CaseRestarted(petition.petitionId, requestId);
+    /**
+     * @notice assigned arbiter breaks tie on a deadlocked case
+     * @dev if case is not marked deadlocked via delinquentReveal(), there can be no assigned arbiter and function will revert
+     */
+    function breakTie(uint256 _petitionId, bool _arbiterVote) external {
+        Petition memory petition = getPetition(_petitionId);
+        if(petition.phase != Phase.Ruling) revert Court__OnlyDuringRuling();
+        if(msg.sender != arbiter[petition.petitionId]) revert Court__InvalidArbiter();
+        (uint256 votesFor, uint256 votesAgainst) = _countVotes(petition.petitionId);
+        (_arbiterVote == true) ? ++votesFor : ++votesAgainst;
+        _renderVerdict(petition.petitionId, votesFor, votesAgainst);
+        emit ArbiterVote(petition.petitionId, msg.sender, _arbiterVote);
     }
 
     //////////////////////
@@ -824,10 +875,6 @@ contract Court is VRFConsumerBaseV2 {
 
     function getJurorFeesOwed(address _juror) public view returns (uint256) {
         return feesToJuror[_juror];
-    }
-
-    function getJurorFeeReimbursementOwed(address _juror) public view returns (uint256) {
-        return jurorFeeReimbursementOwed[_juror];
     }
 
 }

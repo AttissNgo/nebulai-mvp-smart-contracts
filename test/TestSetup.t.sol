@@ -117,6 +117,10 @@ contract TestSetup is Test {
             vm.deal(users[i], 10000 ether);
             usdt.mint(users[i], 10000 ether);
         }
+        for(uint i; i < admins.length; ++i) {
+            vm.deal(admins[i], 10000 ether);
+            usdt.mint(admins[i], 10000 ether);
+        }
 
         // label addresses
         _labelTestAddresses();
@@ -128,12 +132,21 @@ contract TestSetup is Test {
             vm.prank(admin1);
             whitelist.approveAddress(users[i]);
         }
+        for(uint i; i < admins.length; ++i) {
+            vm.prank(admin1);
+            whitelist.approveAddress(admins[i]);
+        }
     }
 
     function _registerJurors() public {
         uint256 stakeAmount = 100 ether;
         for(uint i; i < users.length; ++i) {
             vm.prank(users[i]);
+            juryPool.registerAsJuror{value: stakeAmount}();
+            stakeAmount += 10 ether;
+        }
+        for(uint i; i < admins.length; ++i) {
+            vm.prank(admins[i]);
             juryPool.registerAsJuror{value: stakeAmount}();
             stakeAmount += 10 ether;
         }
