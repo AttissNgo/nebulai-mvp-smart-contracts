@@ -54,9 +54,11 @@ contract Escrow {
         COURT = _court;
     }
 
-    // fallback() payable {}
     receive() external payable {}
 
+    /**
+     * @dev called by Marketplace contract to verify Provider has staked
+     */
     function verifyProviderStake() external returns (bool) {
         if(msg.sender != MARKETPLACE) revert Escrow__OnlyMarketplace();
         if(PAYMENT_TOKEN != address(0)) {
@@ -68,6 +70,10 @@ contract Escrow {
         return providerHasStaked;
     } 
 
+    /**
+     * @notice transfers amountDue() to caller
+     * @dev transfers commissionFee to Marketplace when Provider withdraws
+     */
     function withdraw() external {
         if(msg.sender != BUYER && msg.sender !=PROVIDER) revert Escrow__OnlyBuyerOrProvider();
         if(!isReleasable()) revert Escrow__NotReleasable();
@@ -82,7 +88,6 @@ contract Escrow {
             bool success = IERC20(PAYMENT_TOKEN).transfer(msg.sender, amount);
             if(!success) revert Escrow__TransferFailed();
         }
-        // if provider, pay commissionFee fee
         if(msg.sender == PROVIDER) {
             if(PAYMENT_TOKEN == address(0)) {
                 (bool success,) = MARKETPLACE.call{value: commissionFee}("");
@@ -109,6 +114,9 @@ contract Escrow {
         return false;
     }
 
+    /**
+     * @notice calculates amound Escrow will release to _user
+     */
     function amountDue(address _user) public returns (uint256) {
         uint256 amount;
         IMarketplace marketplace = IMarketplace(MARKETPLACE);

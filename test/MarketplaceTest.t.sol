@@ -810,50 +810,6 @@ contract MarketplaceTest is Test, TestSetup {
         marketplace.approveChangeOrder(p.projectId);
     }
 
-    function test_proposeCounterOffer() public {
-        Marketplace.Project memory p = marketplace.getProject(testProjectId_ERC20);
-        assertEq(marketplace.activeChangeOrder(p.projectId), false);
-        // get discontinued project with change order
-        vm.pauseGasMetering();
-        test_discontinueProject(); // uses ERC20 project
-        vm.resumeGasMetering();
-        uint256 counterAdjProjFee = 800 ether;
-        uint256 counterProvStake = 0;
-        string memory counterUri = "ipfs://counterUri/";
-        vm.prank(provider);
-        marketplace.proposeCounterOffer(
-            p.projectId,
-            counterAdjProjFee,
-            counterProvStake,
-            counterUri
-        );
-        Marketplace.ChangeOrder memory c = marketplace.getChangeOrder(p.projectId);
-        assertEq(c.projectId, p.projectId);
-        assertEq(c.adjustedProjectFee, counterAdjProjFee);
-        assertEq(c.providerStakeForfeit, counterProvStake);
-        assertEq(c.detailsURI, counterUri);
-        assertEq(c.buyerApproval, false);
-        assertEq(c.providerApproval, true);
-    }
-
-    function test_proposeCounterOffer_revert() public {
-        // no active change order
-        Marketplace.Project memory p = marketplace.getProject(testProjectId_MATIC);
-        assertEq(marketplace.activeChangeOrder(p.projectId), false);
-        vm.expectRevert(Marketplace.Marketplace__NoActiveChangeOrder.selector);
-        vm.prank(buyer);
-        marketplace.proposeCounterOffer(p.projectId, 0, 0, "details");
-        // unauthorized user
-        p = marketplace.getProject(testProjectId_ERC20);
-        vm.pauseGasMetering();
-        test_discontinueProject(); // uses ERC20 project
-        vm.resumeGasMetering();
-        vm.prank(carlos);
-        vm.expectRevert(Marketplace.Marketplace__OnlyBuyerOrProvider.selector);
-        marketplace.proposeCounterOffer(p.projectId, 0, 0, "details");
-        // disputed case, but court hasn't ruled yet
-    }
-
 
     ////////////////////////
     ///   ESCROW TESTS   ///

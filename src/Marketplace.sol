@@ -36,9 +36,18 @@ contract Marketplace {
 
     uint256 public nebulaiTxFee = 3;
     uint256 public constant minimumTxFee = 3 ether;
-    mapping(uint256 => uint256) private txFeesHeld; // project ID => amount held - check Project object for payment token
-    mapping(address => uint256) private txFeesPaid; // token address (address(0) for matic) => amount
-    mapping(address => uint256) private commissionFees; // token address (address(0) for matic) => amount
+    /**
+     * @dev Transaction fees held for a Project ID (fees will be returned if Project is Cancelled)
+     */
+    mapping(uint256 => uint256) private txFeesHeld;
+    /**
+     * @dev token address (zero for native) to amount held by Marketplace (non-refundable)
+     */
+    mapping(address => uint256) private txFeesPaid;
+    /**
+     * @dev token address (zero for native) to amount received from completed Projects
+     */
+    mapping(address => uint256) private commissionFees; 
 
     /**
      * @notice the state of a Project
@@ -48,7 +57,7 @@ contract Marketplace {
      * Discontinued - either party quits and a change order period begins to handle partial payment
      * Completed - provider claims project is complete and is awaiting buyer approval
      * Approved - buyer is satisfied, escrow will release project fee to provider, Project is closed
-     * Challenged - buyer is unsatisfied and submits a Change Order - provider has a chance to accept OR go to aribtration 
+     * Challenged - buyer is unsatisfied and submits a Change Order - provider has a chance to accept OR go to arbitration 
      * Disputed - Change Order NOT accepted by provider -> Project goes to arbitration
      * Appealed - the correctness of the court's decision is challenged -> a new arbitration case is opened
      * Resolved_ChangeOrder - escrow releases funds according to change order
@@ -73,7 +82,7 @@ contract Marketplace {
     }
 
     /**
-     * @notice the details of an agreement between a buyer and service provider
+     * @notice details of an agreement between a buyer and service provider
      */
     struct Project {
         uint256 projectId;
@@ -95,6 +104,9 @@ contract Marketplace {
     Counters.Counter public projectIds;
     mapping(uint256 => Project) private projects;
 
+    /**
+     * @notice proposal to alter payment details of a Project
+     */
     struct ChangeOrder {
         uint256 projectId;
         uint256 dateProposed;
@@ -105,50 +117,23 @@ contract Marketplace {
         bool providerApproval;
         string detailsURI;
     }
-    // Counters.Counter private changeOrderIds; // each Change Order has unique ID
-    mapping(uint256 => ChangeOrder) private changeOrders; // projectId => ChangeOrder - only one active per project allowed
-    mapping(uint256 => uint256) private arbitrationCases; // project ID => court petition ID 
+    /**
+     * @dev only one active Change Order per Project ID is possible
+     */
+    mapping(uint256 => ChangeOrder) private changeOrders; 
+    /**
+     * @dev Project ID mapped to Petition ID in Court smart contract
+     */
+    mapping(uint256 => uint256) private arbitrationCases; 
 
-    //////////////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////
-    //////////////////////////////////////////////////
-    //////////////////////////////////////////////////
-    //////////////////////////////////////////
-    //////////////////////////////////////////
-    //////////////////////////////////////////
-    /// NOTE: the following time variables have been made changeable for in-house testing
-
-    // // After Challenge or Discontinuation --> time to complete a Change Order
-    // uint24 public constant CHANGE_ORDER_PERIOD = 7 days;
-    // // After COURT rules --> loser has time to make counter offer or appeal 
-    // uint24 public constant APPEAL_PERIOD = 7 days;
-
-    uint24 public CHANGE_ORDER_PERIOD = 7 days;
-    uint24 public APPEAL_PERIOD = 7 days;
-
-    function setChangeOrderPeriod(uint24 _newPeriod) public {
-        CHANGE_ORDER_PERIOD = _newPeriod;
-    }
-    function setAppealPeriod(uint24 _newPeriod) public {
-        APPEAL_PERIOD = _newPeriod;
-    }
-
-    // The testing changes end here. Be sure to make the time variables constant (un-comment above) before continuing
-    //////////////////////////////////////////
-    //////////////////////////////////////////
-    //////////////////////////////////////////
-    //////////////////////////////////////////////////
-    //////////////////////////////////////////////////
-    //////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////
-
+    /**
+     * @notice time to approve a Change Order after it is created
+     */
+    uint24 public constant CHANGE_ORDER_PERIOD = 7 days;
+    /**
+     * @notice time to appeal a Court decision after the verdict has been rendered
+     */
+    uint24 public constant APPEAL_PERIOD = 7 days;
 
     event NebulaiTxFeeChanged(uint256 txFee);
     event ERC20Approved(address token);
@@ -246,6 +231,11 @@ contract Marketplace {
     fallback() external payable {}
     receive() external payable {}
 
+    /**
+     * @notice creates a Project in Marketplace and deploys an Escrow contract
+     * @dev project ID cannot be zero
+     * @return projectId of newly created Project
+     */
     function createProject(
         address _provider,
         address _paymentToken,
@@ -263,7 +253,7 @@ contract Marketplace {
         if(_provider == msg.sender || _provider == address(0)) revert Marketplace__InvalidProviderAddress();
         if(_dueDate < block.timestamp || _dueDate > block.timestamp + 365 days) revert Marketplace__InvalidDueDate();
         uint256 txFee = calculateNebulaiTxFee(_projectFee);
-        projectIds.increment(); // project ID cannot be 0
+        projectIds.increment(); 
         Project memory p;
         p.projectId = projectIds.current();
         p.buyer = msg.sender;
@@ -304,6 +294,11 @@ contract Marketplace {
         return p.projectId;
     }
 
+    /**
+     * @notice Project is closed and Escrow releases projectFee to Buyer
+     * @notice txFee is refunded to Buyer
+     * @notice can only be called if Provider has not activate Project
+     */
     function cancelProject(uint256 _projectId) external {
         Project storage p = projects[_projectId];
         if(msg.sender != p.buyer) revert Marketplace__OnlyBuyer();
@@ -311,7 +306,6 @@ contract Marketplace {
         uint256 txFeeRefund = getTxFeesHeld(_projectId);
         p.status = Status.Cancelled;
         txFeesHeld[_projectId] -= txFeeRefund;
-        // refund tx fee to buyer
         if(p.paymentToken != address(0)) {
             bool success = IERC20(p.paymentToken).transfer(msg.sender, txFeeRefund);
             if(!success) revert Marketplace__TransferFailed();
@@ -322,6 +316,9 @@ contract Marketplace {
         emit ProjectCancelled(_projectId, p.buyer, p.provider);
     }
 
+    /**
+     * @notice Provider stakes in Escrow and begins working on Project
+     */
     function activateProject(uint256 _projectId) external payable onlyUser {
         Project storage p = projects[_projectId];
         if(msg.sender != p.provider) revert Marketplace__OnlyProvider();
@@ -346,6 +343,10 @@ contract Marketplace {
         emit ProjectActivated(_projectId, p.buyer, p.provider);
     }
 
+    /**
+     * @notice either Buyer or Provider discontinues Project and proposes a Change Order
+     * @param _changeOrderDetailsURI details of Change Order on distributed file system
+     */
     function discontinueProject(
         uint256 _projectId,
         uint256 _adjustedProjectFee,
@@ -368,6 +369,9 @@ contract Marketplace {
         emit ProjectDiscontinued(_projectId, p.buyer, p.provider);
     }
 
+    /**
+     * @notice Provider Project is complete, reviewPeriod is initiated in which Buyer reviews deliverables
+     */
     function completeProject(uint256 _projectId) external {
         Project storage p = projects[_projectId];
         if(msg.sender != p.provider) revert Marketplace__OnlyProvider();
@@ -377,6 +381,9 @@ contract Marketplace {
         emit ProjectCompleted(p.projectId, p.buyer, p.provider);
     }
 
+    /**
+     * @notice Buyer approves deliverables, Project is closed and Escrow releases funds according to Project details
+     */
     function approveProject(uint256 _projectId) external {
         Project storage p = projects[_projectId];
         if(msg.sender != p.buyer) revert Marketplace__OnlyBuyer();
@@ -385,6 +392,10 @@ contract Marketplace {
         emit ProjectApproved(p.projectId, p.buyer, p.provider);
     }
 
+    /**
+     * @notice Buyer challenges completed Project and proposes Change Order
+     * @param _changeOrderDetailsURI details of Change Order on distributed file system
+     */
     function challengeProject(
         uint256 _projectId,
         uint256 _adjustedProjectFee,
@@ -411,6 +422,10 @@ contract Marketplace {
         emit ProjectChallenged(_projectId, p.buyer, p.provider);
     }
 
+    /**
+     * @notice Project is closed and Escrow releases funds according to Project details
+     * @notice can only be called after reviewPeriod has elapsed and Buyer has not approved or challenged
+     */
     function delinquentPayment(uint256 _projectId) external {
         Project storage p = projects[_projectId];
         if(msg.sender != p.provider) revert Marketplace__OnlyProvider();
@@ -425,6 +440,12 @@ contract Marketplace {
     ///   ARBITRATION   ///
     ///////////////////////
 
+    /**
+     * @notice initiates arbitration by creating a Petition in Court contract
+     * @notice can only be called after a Change Order has failed to be approved within CHANGE_ORDER_PERIOD
+     * @dev deletes existing (non-approved) Change Order
+     * @return petitionID identifier of Petition in Court contract
+     */
     function disputeProject(
         uint256 _projectId,
         uint256 _adjustedProjectFee,
@@ -440,10 +461,8 @@ contract Marketplace {
             revert Marketplace__ChangeOrderPeriodStillActive();
         }
         p.status = Status.Disputed;
-        // delete existing change order 
         ChangeOrder memory emptyChangeOrder;
         changeOrders[p.projectId] = emptyChangeOrder;
-        // create petition
         if(_adjustedProjectFee > p.projectFee) revert Marketplace__AdjustedFeeExceedsProjectFee();
         if(_providerStakeForfeit > p.providerStake) revert Marketplace__ForfeitExceedsProviderStake();
         uint256 petitionId = COURT.createPetition(
@@ -458,9 +477,11 @@ contract Marketplace {
         return petitionId;
     }
 
-    /// @notice challenges the validity of a court ruling by creating a new petition with a new jury
-    /// petition details remain from original petition
-    /// @return ID of new petition created in Court contract 
+    /**
+     * @notice creates a new Petition in Court contract with same details of original arbitration case
+     * @notice can only called between rendering of original verdict and end of APPEAL_PERIOD
+     * @return petitionID identifier of Petition in Court contract
+     */
     function appealRuling(uint256 _projectId) external returns (uint256) {
         Project storage p = projects[_projectId];
         if(msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
@@ -475,6 +496,10 @@ contract Marketplace {
         return petitionId;
     }
 
+    /**
+     * @notice Project is closed and Escrow releases funds according to Petition in Court contract
+     * @notice only non-prevailing party may waive the appeal
+     */
     function waiveAppeal(uint256 _projectId) external {
         Project storage project = projects[_projectId];
         if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
@@ -489,6 +514,10 @@ contract Marketplace {
         emit ResolvedByCourtOrder(project.projectId, petition.petitionId);
     }
 
+    /**
+     * @notice Project is closed and Escrow releases funds according to Petition in Court contract
+     * @notice if Petition is not appeal, user must wait until after APPEAL_PERIOD elapses
+     */
     function resolveByCourtOrder(uint256 _projectId) public {
         Project storage project = projects[_projectId];
         if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
@@ -497,11 +526,17 @@ contract Marketplace {
         if(petition.phase != ICourt.Phase.Verdict && petition.phase != ICourt.Phase.DefaultJudgement) {
             revert Marketplace__CourtHasNotRuled();
         }
-        if(block.timestamp < petition.verdictRenderedDate + APPEAL_PERIOD) revert Marketplace__AppealPeriodNotOver();
+        if(!petition.isAppeal) {
+            if(block.timestamp < petition.verdictRenderedDate + APPEAL_PERIOD) revert Marketplace__AppealPeriodNotOver();
+        }
         project.status = Status.Resolved_CourtOrder;
         emit ResolvedByCourtOrder(_projectId, petition.petitionId);
     }
 
+    /**
+     * @notice Project is closed and Escrow releases funds according to Project details
+     * @notice Petition can be dismissed in Court contract if neither party pays arbitration fee
+     */
     function resolveDismissedCase(uint256 _projectId) public {
         Project storage project = projects[_projectId];
         if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
@@ -512,6 +547,11 @@ contract Marketplace {
         emit ResolvedByDismissedCase(_projectId, petition.petitionId);
     }
 
+    /**
+     * @notice creates a new Change Order during arbitration
+     * @notice can only be created before both parties have paid arbitration fee in Court contract
+     * @param _settlementDetailsURI details of Change Order on distributed file system
+     */
     function proposeSettlement( 
         uint256 _projectId,
         uint256 _adjustedProjectFee,
@@ -538,6 +578,10 @@ contract Marketplace {
     ///   CHANGE ORDER   ///
     ////////////////////////
 
+    /**
+     * @notice creates a new Change Order
+     * @dev sets approval as true for user who proposes Change Order
+     */
     function _proposeChangeOrder(
         uint256 _projectId,
         uint256 _adjustedProjectFee,
@@ -553,8 +597,6 @@ contract Marketplace {
             p.status != Status.Challenged && 
             p.status != Status.Disputed
         ) revert Marketplace__ChangeOrderCannotBeProposed();
-        // if(p.status != Status.Discontinued && p.status != Status.Challenged) revert Marketplace__ChangeOrderCannotBeProposed();
-        // if(activeChangeOrder(_projectId)) revert Marketplace__ChangeOrderAlreadyExists();
         if(_adjustedProjectFee > p.projectFee) revert Marketplace__AdjustedFeeExceedsProjectFee();
         if(_providerStakeForfeit > p.providerStake) revert Marketplace__ForfeitExceedsProviderStake();
         changeOrders[_projectId] = ChangeOrder({
@@ -570,6 +612,9 @@ contract Marketplace {
         emit ChangeOrderProposed(p.projectId);
     }
 
+    /**
+     * @notice Project is closed and Escrow releases funds according to Change Order
+     */
     function approveChangeOrder(uint256 _projectId) external {
         if(!activeChangeOrder(_projectId)) revert Marketplace__NoActiveChangeOrder();
         Project storage p = projects[_projectId];
@@ -586,43 +631,20 @@ contract Marketplace {
         ) revert Marketplace__AlreadyApprovedChangeOrder();
         if(msg.sender == p.buyer) c.buyerApproval = true;
         if(msg.sender == p.provider) c.providerApproval = true;
-
         if(p.status == Status.Disputed) {
             _validSettlement(p.projectId);
         }
-
         p.status = Status.Resolved_ChangeOrder;
         emit ChangeOrderApproved(p.projectId, p.buyer, p.provider);
     }
-
+    
+    /**
+     * @dev updates Petition phase in Court contract if Change Order is settlement
+     */
     function _validSettlement(uint256 _projectId) private {
         ICourt.Petition memory petition = COURT.getPetition(getArbitrationPetitionId(_projectId));
         if(petition.phase != ICourt.Phase.Discovery) revert Marketplace__ChangeOrderNotValid();
         COURT.settledExternally(petition.petitionId);
-    }
-
-    function proposeCounterOffer(
-        uint256 _projectId,
-        uint256 _adjustedProjectFee,
-        uint256 _providerStakeForfeit,
-        string memory _changeOrderDetailsURI
-    )
-        external
-    {
-        if(!activeChangeOrder(_projectId)) revert Marketplace__NoActiveChangeOrder();
-        Project memory p = getProject(_projectId);
-        // _propose will check status, all we need here is to check petition status for disputed
-        if(p.status == Status.Disputed) {
-            // INebulaiCourt.Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
-            // if(petition.phase != INebulaiCourt.Phase.Verdict) revert Marketplace__CourtHasNotRuled();
-        }
-        // create change order which will supercede any existing order
-        _proposeChangeOrder(
-            _projectId,
-            _adjustedProjectFee,
-            _providerStakeForfeit,
-            _changeOrderDetailsURI
-        );
     }
 
     ////////////////
@@ -639,6 +661,9 @@ contract Marketplace {
         isApprovedToken[_token] = true;
     }
 
+    /**
+     * @dev called by Escrow after tranferring commission fee to Marketplace when Provider withdraws
+     */
     function receiveCommission(uint256 _projectId, uint256 _commission) external {
         Project memory project = getProject(_projectId);
         if(msg.sender != project.escrow) revert Marketplace__CommissionMustBePaidByEscrow();
@@ -666,6 +691,9 @@ contract Marketplace {
         emit ERC20Removed(_erc20);
     }
 
+    /**
+     * @dev transfers all releasable fees paid in native currency and all ERC20 fees from _approvedTokens
+     */
     function withdrawFees(address _recipient, address[] calldata _approvedTokens) external onlyGovernor {
         uint256[] memory erc20FeesPaid = new uint256[](_approvedTokens.length);
         // get all erc20

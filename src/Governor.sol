@@ -7,9 +7,6 @@ contract Governor {
     address[] public admins;
     mapping(address => bool) public isAdmin;
 
-    /**
-     * @notice data structure used to make function calls and send native currency
-     */
     struct Transaction {
         address to;
         uint256 value;
@@ -34,9 +31,7 @@ contract Governor {
     event SignatureRevoked(uint256 txIndex, address admin, uint256 numSignatures);
     event TransactionCancelled(uint256 txIndex);
     event AdminAdded(address newAdmin);
-    // event AdminAdded(address newAdmin, uint256 numSigsRequired);
     event AdminRemoved(address adminRemoved);
-    // event AdminRemoved(address adminRemoved, uint256 numSigsRequired);
     event SignaturesRequiredChanged(uint256 signaturesRequired);
 
     error Governor__DuplicateAdminAddress();
@@ -81,7 +76,7 @@ contract Governor {
     receive() external payable {}
 
     /**
-     * @notice create a Transaction object which will be executed when enough admins sign
+     * @notice propose a Transaction which will be executed when enough admins sign
      * @dev caller automatically signs Transaction
      */
     function proposeTransaction(
@@ -107,7 +102,8 @@ contract Governor {
     }
 
     /**
-     * @notice approve a Transaction - if approval reaches required signatures, Transaction will be executed
+     * @notice approve a Transaction
+     * @notice Transaction will be executed when signaturesRequired is met
      */
     function signTransaction(uint256 _txIndex) public onlyAdmin onlyActive(_txIndex) {
         if(hasSigned[_txIndex][msg.sender]) revert Governor__DuplicateSignature();
@@ -119,8 +115,8 @@ contract Governor {
     }
 
     /**
-     * @dev used to manually execute transactions which were not executed automatically by signTransaction().
-     * For example, if the number of signatures required is reduced.
+     * @dev manually executes a Transaction which was not executed automatically by signTransaction()
+     * @dev for example, if the number of signatures required is reduced
      */
     function executeTransaction(uint256 _txIndex) public onlyAdmin onlyActive(_txIndex) {
         Transaction storage transaction = transactions[_txIndex];
@@ -133,7 +129,7 @@ contract Governor {
     }
 
     /**
-     * @notice remove signature from Transaction 
+     * @notice removes signature from Transaction 
      */
     function revokeSignature(uint256 _txIndex) public onlyAdmin onlyActive(_txIndex) {
         if(!hasSigned[_txIndex][msg.sender]) revert Governor__UserHasNotSigned();
@@ -144,7 +140,8 @@ contract Governor {
     }
 
     /**
-     * @notice Admin who initially proposed transaction may make it inactive
+     * @notice deactivates a proposed Transaction
+     * @notice can only be called by address which proposed Transaction
      */
     function cancelTransaction(uint256 _txIndex) public onlyAdmin onlyActive(_txIndex) {
         Transaction storage transaction = transactions[_txIndex];
@@ -154,7 +151,7 @@ contract Governor {
     }
 
     /**
-     * @notice add an address with admin permission 
+     * @notice adds an address with admin permission 
      */
     function addAdmin(address _newAdmin) public onlyGovernor {
         _addAdmin(_newAdmin);
@@ -162,7 +159,7 @@ contract Governor {
     }
 
     /**
-     * @notice remove admin permission 
+     * @notice removes admin address
      * @dev will revert if removing an admin results less than two admins total
      */
     function removeAdmin(address _toRemove) public onlyGovernor {
@@ -184,7 +181,7 @@ contract Governor {
     }
 
     /**
-     * @notice change the number of signatures needed to execute a Transaction
+     * @notice changes the number of signatures needed to execute a Transaction
      */
     function changeSignaturesRequired(uint256 _newSigsRequired) public onlyGovernor {
         require(_checkNumSigs(_newSigsRequired, admins.length));

@@ -16,18 +16,22 @@ contract Court is VRFConsumerBaseV2 {
     address public immutable MARKETPLACE;
     IJuryPool public juryPool;
 
-    // fees
     uint256 public jurorFlatFee = 20 ether; 
-    mapping(uint256 => uint256) private feesHeld; // petition ID => arbitration fees held
+    /**
+     * @notice the arbitration fees held for a Petition ID
+     */
+    mapping(uint256 => uint256) private feesHeld; 
 
-    // randomness 
+    /**
+     * @notice parameters for requesting random words from Chainlink VRF
+     */
     VRFCoordinatorV2Interface public immutable VRF_COORDINATOR;
     bytes32 public keyHash = 0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f;
     uint64 public subscriptionId;
     uint16 public requestConfirmations = 3;
     uint32 public callbackGasLimit = 800000;
     uint32 public numWords = 2; 
-    mapping(uint256 => uint256) public vrfRequestToPetition; //  VRF request ID => petitionID
+    mapping(uint256 => uint256) public vrfRequestToPetition;
 
     /**
      * @notice the stage of a petition
@@ -88,54 +92,10 @@ contract Court is VRFConsumerBaseV2 {
     mapping(uint256 => bool) public votesTied;
     mapping(uint256 => address) public arbiter;
 
-    //////////////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////
-    //////////////////////////////////////////////////
-    //////////////////////////////////////////////////
-    //////////////////////////////////////////
-    //////////////////////////////////////////
-    //////////////////////////////////////////
-    /// NOTE: the following time variables have been made changeable for in-house testing
-
-    // // Time variables
-    // uint24 public constant DISCOVERY_PERIOD = 7 days;
-    // uint24 public constant JURY_SELECTION_PERIOD = 3 days;
-    // uint24 public constant VOTING_PERIOD = 4 days;
-    // uint24 public constant RULING_PERIOD = 3 days;
-    
-    uint24 public DISCOVERY_PERIOD = 7 days;
-    uint24 public JURY_SELECTION_PERIOD = 3 days;
-    uint24 public VOTING_PERIOD = 4 days;
-    uint24 public RULING_PERIOD = 3 days;
-
-    function setDiscoveryPeriod(uint24 _newPeriod) public {
-        DISCOVERY_PERIOD = _newPeriod;
-    }
-    function setJurySelectionPeriod(uint24 _newPeriod) public {
-        JURY_SELECTION_PERIOD = _newPeriod;
-    }
-    function setVotingPeriod(uint24 _newPeriod) public {
-        VOTING_PERIOD = _newPeriod;
-    }
-    function setRulingPeriod(uint24 _newPeriod) public {
-        RULING_PERIOD = _newPeriod;
-    }
-
-    // The testing changes end here. Be sure to make the time variables constant (un-comment above) before continuing
-    //////////////////////////////////////////
-    //////////////////////////////////////////
-    //////////////////////////////////////////
-    //////////////////////////////////////////////////
-    //////////////////////////////////////////////////
-    //////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////
+    uint24 public constant DISCOVERY_PERIOD = 7 days;
+    uint24 public constant JURY_SELECTION_PERIOD = 3 days;
+    uint24 public constant VOTING_PERIOD = 4 days;
+    uint24 public constant RULING_PERIOD = 3 days;
 
     event PetitionCreated(uint256 indexed petitionId, uint256 projectId);
     event AppealCreated(uint256 indexed petitionId, uint256 indexed originalPetitionId, uint256 projectId);
@@ -231,7 +191,7 @@ contract Court is VRFConsumerBaseV2 {
     }
 
     /**
-     * @dev callback from Chainlink VRF which draws jurors 
+     * @dev callback from Chainlink VRF - uses random words to select jurors
      */
     function fulfillRandomWords(uint256 requestId, uint256[] memory randomWords) internal override {   
         Petition storage petition = petitions[vrfRequestToPetition[requestId]];
@@ -254,8 +214,7 @@ contract Court is VRFConsumerBaseV2 {
             for(uint i; i < jurorsDrawn.length; ++i) {
                 if(jurorsDrawn[i] == drawnJuror) isInvalid = true; 
             }
-            // if redraw check against already drawn jurors as well
-            if(isRedraw) {
+            if(isRedraw) { 
                 for(uint i; i < jury.drawnJurors.length; ++i) {
                     if(jury.drawnJurors[i] == drawnJuror) isInvalid = true;
                 }
@@ -307,6 +266,7 @@ contract Court is VRFConsumerBaseV2 {
     /**
      * @notice creates a new petition
      * @dev can only be called from Marketplace disputeProject()
+     * @dev petition ID cannot be zero
      * @return petitionId
      */
     function createPetition(
@@ -321,7 +281,7 @@ contract Court is VRFConsumerBaseV2 {
         returns (uint256)
     {
         if(IMarketplace(msg.sender).getArbitrationPetitionId(_projectId) != 0) revert Court__ProjectHasOpenPetition();
-        petitionIds.increment(); // can never be 0
+        petitionIds.increment();
         uint256 petitionId = petitionIds.current();
         Petition memory petition;
         petition.petitionId = petitionId;
@@ -341,7 +301,7 @@ contract Court is VRFConsumerBaseV2 {
      *  @notice creates new 'appeal' petition with project/dispute information from original petition 
      *  arbitration fee is higher to compensate larger jury
      *  @dev can only be called from Marketplace appealRuling()
-     *  @return ID of new 'appeal' petition 
+     *  @return petitionID of new 'appeal' petition 
      */
     function appeal(uint256 _projectId) external onlyMarketplace returns (uint256) {
         uint256 originalPetitionId = IMarketplace(msg.sender).getArbitrationPetitionId(_projectId); 
@@ -397,7 +357,7 @@ contract Court is VRFConsumerBaseV2 {
 
     /**
      * @notice allows litigants who have paid arbitration fee to submit additional evidence
-     * evidence can only be submitted during Discovery and Jury Selection
+     * @dev evidence can only be submitted during Discovery and Jury Selection
      */
     function submitAdditionalEvidence(uint256 _petitionId, string[] calldata _evidenceURIs) external {
         Petition storage petition = petitions[_petitionId];
@@ -436,6 +396,7 @@ contract Court is VRFConsumerBaseV2 {
     }
 
     /**
+     * @notice closes a Petition that receives no payment of arbitration fees within DISCOVER_PERIOD
      * @notice a dismissed case will return to original project fee amount in Marketplace
      */
     function dismissUnpaidCase(uint256 _petitionId) public {
@@ -689,6 +650,10 @@ contract Court is VRFConsumerBaseV2 {
         emit AdditionalJurorDrawingInitiated(petition.petitionId, requestId);
     }
 
+    /**
+     * @notice assigns additional addresses to drawnJurors in Jury
+     * @dev can only be called by admin and only after a redraw has been made via drawAdditionalJurors()
+     */
     function assignAdditionalJurors(uint256 _petitionId, address[] calldata _additionalJurors) external {
         if(!IGovernor(GOVERNOR).isAdmin(msg.sender)) revert Court__OnlyAdmin();
         Petition memory petition = getPetition(_petitionId);
@@ -698,7 +663,6 @@ contract Court is VRFConsumerBaseV2 {
         } 
         Jury storage jury = juries[_petitionId];
         if(!(jury.drawnJurors.length > jurorsNeeded(_petitionId) * 3)) revert Court__JuryNotRedrawn();
-        // must be valid jurors
         for(uint i; i < _additionalJurors.length; ++i) {
             if(isConfirmedJuror(petition.petitionId, _additionalJurors[i])) revert Court__InvalidJuror();
             if(!juryPool.isEligible(_additionalJurors[i])) revert Court__InvalidJuror();
@@ -711,8 +675,8 @@ contract Court is VRFConsumerBaseV2 {
     }
 
     /**
-     * @notice removes juror who does not commit vote within voting period
-     * transfers stake of delinquent juror to Jury Reserve
+     * @notice removes juror who does not commit vote within VOTING_PERIOD
+     * @notice transfers stake of delinquent juror to Jury Reserve
      * @dev restarts voting period so remaining drawn jurors may accept case and vote
      */
     function delinquentCommit(uint256 _petitionId) external {
@@ -732,10 +696,10 @@ contract Court is VRFConsumerBaseV2 {
     }
 
     /**
-     * @notice called if a juror fails to reveal hidden vote
-     * juror's stake will be forfeitted and transferred to Jury Reserve
-     * if a majority can still be reached without the delinquent juror's vote, a verdict will be rendered
-     * if the votes are tied, an arbiter may be assigned by Nebulai to break the tie
+     * @notice removes jurors who fail to reveal hidden vote during RULING_PERIOD
+     * @notice removed juror's stake will be forfeitted and transferred to Jury Reserve
+     * @notice if a majority can still be reached without the delinquent juror's vote, a verdict will be rendered
+     * @notice if the votes are tied, an arbiter may be assigned by Nebulai to break the tie
      * @dev if all votes are revealed, phase will have advanced and function will revert
      */
     function delinquentReveal(uint256 _petitionId) external {
@@ -764,7 +728,8 @@ contract Court is VRFConsumerBaseV2 {
     }
 
     /**
-     * @dev removes a juror from the jury of a petition. Called internally when a juror fails to commit or reveal.
+     * @dev removes a juror from the jury of a petition
+     * @dev called internally when a juror fails to commit or reveal
      */
     function _removeJuror(uint256 _petitionId, address _juror) private {
         Jury storage jury = juries[_petitionId];
