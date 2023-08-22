@@ -29,30 +29,52 @@ contract Marketplace {
     ICourt public immutable COURT;
     IEscrowFactory public immutable ESCROW_FACTORY;
 
-    mapping(address => bool) public isApprovedToken; // ERC20 tokens accepted by Marketplace
+    /**
+     * @notice ERC20 tokens which can be used as payment token for Projects
+     */
+    mapping(address => bool) public isApprovedToken;
 
     uint256 public nebulaiTxFee = 3;
-    uint256 public constant minimumTxFee = 3 ether; // if project fee is very low or zero, buyer still must pay 3 matic to create project
-    mapping(uint256 => uint256) private txFeesHeld; // project ID to amount held - check Project object for payment token
-    mapping(address => uint256) private txFeesPaid; // token address (0 for matic) => amount
-    mapping(address => uint256) private commissionFees; // token address (0 for matic) => amount
+    uint256 public constant minimumTxFee = 3 ether;
+    mapping(uint256 => uint256) private txFeesHeld; // project ID => amount held - check Project object for payment token
+    mapping(address => uint256) private txFeesPaid; // token address (address(0) for matic) => amount
+    mapping(address => uint256) private commissionFees; // token address (address(0) for matic) => amount
 
+    /**
+     * @notice the state of a Project
+     * Created - Escrow holds project fee, but work has not started
+     * Cancelled - project is withdrawn by buyer before provider begins work 
+     * Active - provider has staked in Escrow and has begun work 
+     * Discontinued - either party quits and a change order period begins to handle partial payment
+     * Completed - provider claims project is complete and is awaiting buyer approval
+     * Approved - buyer is satisfied, escrow will release project fee to provider, Project is closed
+     * Challenged - buyer is unsatisfied and submits a Change Order - provider has a chance to accept OR go to aribtration 
+     * Disputed - Change Order NOT accepted by provider -> Project goes to arbitration
+     * Appealed - the correctness of the court's decision is challenged -> a new arbitration case is opened
+     * Resolved_ChangeOrder - escrow releases funds according to change order
+     * Resolved_CourtOrder - escrow releases funds according to court petition
+     * Resolved_DelinquentPayment - escrow releases funds according to original agreement
+     * Resolved_ArbitrationDismissed - escrow releases funds according to original agreement
+     */
     enum Status { 
-        Created, // project is created but has not been started - Escrow holds project fee
-        Cancelled, // project is withdrawn by buyer before provider begins work
-        Active, // provider has started work - Provider must stake in ESCROW to initiate this status
-        Discontinued, // either party quits - change order period begins
-        Completed, // provider claims project is complete
-        Approved, // buyer is satisfied and project fee is released to provider, Project is closed
-        Challenged, // buyer requests full or partial refund via Change Order - provider has a chance to accept OR go to aribtration 
-        Disputed, // Change Order NOT accepted by provider -> Project goes to arbitration
-        Appealed, // new arbitration case is opened
-        Resolved_ChangeOrder, // escrow releases according to change order
-        Resolved_CourtOrder, // escrow releases according to court petition
-        Resolved_DelinquentPayment, // escrow releases according to original agreement
-        Resolved_ArbitrationDismissed // escrow releases according to original agreement
+        Created, 
+        Cancelled, 
+        Active, 
+        Discontinued, 
+        Completed, 
+        Approved, 
+        Challenged, 
+        Disputed,
+        Appealed, 
+        Resolved_ChangeOrder, 
+        Resolved_CourtOrder, 
+        Resolved_DelinquentPayment, 
+        Resolved_ArbitrationDismissed 
     }
 
+    /**
+     * @notice the details of an agreement between a buyer and service provider
+     */
     struct Project {
         uint256 projectId;
         address buyer;
