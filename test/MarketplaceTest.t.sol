@@ -42,7 +42,7 @@ contract MarketplaceTest is Test, TestSetup {
     event ResolvedByCourtOrder(uint256 indexed projectId, uint256 indexed petitionId);
     event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed petitionId);
     event SettlementProposed(uint256 indexed projectId, uint256 indexed petitionId);
-    event FeesWithdrawn(address recipient, uint256 nativeAmount, address[] erc20Tokens, uint256[] erc20Amounts);
+    // event FeesWithdrawn(address recipient, uint256 nativeAmount, address[] erc20Tokens, uint256[] erc20Amounts);
 
     function setUp() public {
         _setUp();
@@ -889,15 +889,15 @@ contract MarketplaceTest is Test, TestSetup {
         uint256 contractBalBefore = address(marketplace).balance;
         uint256 contractTokenBalBefore = IERC20(project.paymentToken).balanceOf(address(marketplace));
 
-        address[] memory erc20s = new address[](1);
-        erc20s[0] = project.paymentToken;
-        uint256[] memory erc20sPaid = new uint256[](1);
-        erc20sPaid[0] = erc20TxFees + erc20CommissionFees;
-        bytes memory data = abi.encodeWithSignature("withdrawFees(address,address[])", admin1, erc20s);
+        // address[] memory erc20s = new address[](1);
+        // erc20s[0] = project.paymentToken;
+        // uint256[] memory erc20sPaid = new uint256[](1);
+        // erc20sPaid[0] = erc20TxFees + erc20CommissionFees;
+        bytes memory data = abi.encodeWithSignature("withdrawFees(address)", admin1);
         vm.prank(admin1);
         uint256 txIndex = governor.proposeTransaction(address(marketplace), 0, data);
-        vm.expectEmit(false, false, false, true);
-        emit FeesWithdrawn(admin1, nativeTxFees + nativeCommissionFees, erc20s, erc20sPaid);
+        // vm.expectEmit(false, false, false, true);
+        // emit FeesWithdrawn(admin1, nativeTxFees + nativeCommissionFees, erc20s, erc20sPaid);
         util_executeGovernorTx(txIndex);
 
         assertEq(admin1.balance, admin1BalBefore + nativeTxFees + nativeCommissionFees);

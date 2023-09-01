@@ -32,7 +32,9 @@ contract Marketplace {
     /**
      * @notice ERC20 tokens which can be used as payment token for Projects
      */
+    address[] public erc20Tokens;
     mapping(address => bool) public isApprovedToken;
+
 
     uint256 public nebulaiTxFee = 3;
     uint256 public constant minimumTxFee = 3 ether;
@@ -155,7 +157,8 @@ contract Marketplace {
     event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed petitionId);
     event SettlementProposed(uint256 indexed projectId, uint256 indexed petitionId);
     event CommissionFeeReceived(uint256 indexed projectId, uint256 commissionAmount, address paymentToken);
-    event FeesWithdrawn(address recipient, uint256 nativeAmount, address[] erc20Tokens, uint256[] erc20Amounts);
+    event FeesWithdrawnERC20(address recipient, address token, uint256 amount);
+    event FeesWithdrawnNative(address recipient, uint256 amount);
 
     // transfers
     error Marketplace__TransferFailed();
@@ -658,6 +661,7 @@ contract Marketplace {
     }
 
     function _approveToken(address _token) private {
+        erc20Tokens.push(_token);
         isApprovedToken[_token] = true;
     }
 
@@ -692,20 +696,20 @@ contract Marketplace {
     }
 
     /**
-     * @dev transfers all releasable fees paid in native currency and all ERC20 fees from _approvedTokens
+     * @dev transfers all releasable fees paid in native currency and ERC20 tokens 
      */
-    function withdrawFees(address _recipient, address[] calldata _approvedTokens) external onlyGovernor {
-        uint256[] memory erc20FeesPaid = new uint256[](_approvedTokens.length);
-        // get all erc20
-        for(uint i; i < _approvedTokens.length; ++i) {
-            if(!isApprovedToken[_approvedTokens[i]]) revert Marketplace__UnapprovedToken();
-            uint256 erc20Fees = txFeesPaid[_approvedTokens[i]] + commissionFees[_approvedTokens[i]];
-            erc20FeesPaid[i] = erc20Fees;
-            txFeesPaid[_approvedTokens[i]] = 0;
-            commissionFees[_approvedTokens[i]] = 0;
+    function withdrawFees(address _recipient) external onlyGovernor {
+        // uint256[] memory erc20FeesPaid = new uint256[](_approvedTokens.length);
+        for(uint i; i < erc20Tokens.length; ++i) {
+            if(!isApprovedToken[erc20Tokens[i]]) revert Marketplace__UnapprovedToken();
+            uint256 erc20Fees = txFeesPaid[erc20Tokens[i]] + commissionFees[erc20Tokens[i]];
+            // erc20FeesPaid[i] = erc20Fees;
+            txFeesPaid[erc20Tokens[i]] = 0;
+            commissionFees[erc20Tokens[i]] = 0;
             if(erc20Fees > 0) {
-                bool erc20success = IERC20(_approvedTokens[i]).transfer(_recipient, erc20Fees);
+                bool erc20success = IERC20(erc20Tokens[i]).transfer(_recipient, erc20Fees);
                 if(!erc20success) revert Marketplace__TransferFailed();
+                emit FeesWithdrawnERC20(_recipient, erc20Tokens[i], erc20Fees);
             }
         }
         // get all matic
@@ -716,7 +720,7 @@ contract Marketplace {
             (bool success, ) = _recipient.call{value: nativeFees}("");
             if(!success) revert Marketplace__TransferFailed();
         }
-        emit FeesWithdrawn(_recipient, nativeFees, _approvedTokens, erc20FeesPaid);
+        emit FeesWithdrawnNative(_recipient, nativeFees);
     }
 
     ///////////////////
