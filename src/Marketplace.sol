@@ -699,11 +699,9 @@ contract Marketplace {
      * @dev transfers all releasable fees paid in native currency and ERC20 tokens 
      */
     function withdrawFees(address _recipient) external onlyGovernor {
-        // uint256[] memory erc20FeesPaid = new uint256[](_approvedTokens.length);
         for(uint i; i < erc20Tokens.length; ++i) {
             if(!isApprovedToken[erc20Tokens[i]]) revert Marketplace__UnapprovedToken();
             uint256 erc20Fees = txFeesPaid[erc20Tokens[i]] + commissionFees[erc20Tokens[i]];
-            // erc20FeesPaid[i] = erc20Fees;
             txFeesPaid[erc20Tokens[i]] = 0;
             commissionFees[erc20Tokens[i]] = 0;
             if(erc20Fees > 0) {
@@ -764,6 +762,10 @@ contract Marketplace {
 
     function getArbitrationPetitionId(uint256 projectId) public view returns (uint256) {
         return arbitrationCases[projectId];
+    }
+
+    function getErc20Tokens() public view returns (address[] memory) {
+        return erc20Tokens;
     }
 
 }
