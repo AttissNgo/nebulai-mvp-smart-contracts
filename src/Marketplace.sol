@@ -465,6 +465,7 @@ contract Marketplace {
         }
         p.status = Status.Disputed;
         ChangeOrder memory emptyChangeOrder;
+        p.changeOrderPeriodInitiated = 0;
         changeOrders[p.projectId] = emptyChangeOrder;
         if(_adjustedProjectFee > p.projectFee) revert Marketplace__AdjustedFeeExceedsProjectFee();
         if(_providerStakeForfeit > p.providerStake) revert Marketplace__ForfeitExceedsProviderStake();

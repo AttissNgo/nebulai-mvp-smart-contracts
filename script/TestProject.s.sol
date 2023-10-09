@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import "forge-std/Script.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "forge-std/console.sol";
 
 interface MarketplaceIface {
     function calculateNebulaiTxFee(uint256 _projectFee) external view returns (uint256);
@@ -20,6 +21,7 @@ interface MarketplaceIface {
         returns (uint256); 
     function activateProject(uint256 _projectId) external payable;
     function completeProject(uint256 _projectId) external;
+    function approveProject(uint256 _projectId) external;
     function challengeProject(
         uint256 _projectId,
         uint256 _adjustedProjectFee,
@@ -44,8 +46,7 @@ interface VRFIface {
     function fulfillRandomWords(uint256 _requestId, address _consumer) external;
 }
 
-contract TestProjectStorage is Script {
-
+contract TestProject is Script {
     uint256 projectFee = 100 ether;
     uint256 providerStake = 10 ether;
     string detailsURI = "ipfs://someDetails/";
@@ -69,13 +70,73 @@ contract TestProjectStorage is Script {
     IERC20 testToken = IERC20(testTokenAddr);
     CourtIface court = CourtIface(courtAddr);
     VRFIface vrf = VRFIface(vrfMockAddr);
-}
 
-contract CreateTestProjects is Script, TestProjectStorage {
+    function create() public returns (uint256 projectId) {
+        vm.startBroadcast(pk_0); 
+        uint256 txFee = marketplace.calculateNebulaiTxFee(projectFee);
+        testToken.approve(marketplaceAddr, projectFee + txFee);
+        projectId = marketplace.createProject(
+            anvil_1,
+            testTokenAddr,
+            projectFee,
+            providerStake,
+            block.timestamp + 7 days,
+            block.timestamp + 2 days,
+            detailsURI
+        );
+        vm.stopBroadcast();
+    }
 
+    function activate(uint256 _id) public {
+        vm.startBroadcast(pk_1); 
+        testToken.approve(marketplaceAddr, providerStake);
+        marketplace.activateProject(_id);
+        vm.stopBroadcast();
+    }
 
-    function run() public {
+    function complete(uint256 _id) public {
+        vm.startBroadcast(pk_1); 
+        marketplace.completeProject(_id);
+        vm.stopBroadcast();
+    }
 
+    function approve(uint256 _id) public {
+        vm.startBroadcast(pk_0);
+        marketplace.approveProject(_id);
+        vm.stopBroadcast();
+    }
+
+    function challenge(uint256 _id) public {
+        vm.startBroadcast(pk_0); 
+        marketplace.challengeProject(_id, changeOrderProjectFee, changeOrderStakeForfeit, changeOrderDetails);
+        vm.stopBroadcast();
+    }
+ 
+    // !!!! ADVANCE TIME BEFORE CALLING
+    function dispute(uint256 _id) public {
+        vm.startBroadcast(pk_0);
+        marketplace.disputeProject(_id,changeOrderProjectFee, changeOrderStakeForfeit);
+        vm.stopBroadcast();
+    }
+
+    function payFees(uint256 _id) public {
+        uint256 arbitrationFee = court.calculateArbitrationFee(false);
+        uint256 petitionId = marketplace.getArbitrationPetitionId(_id);
+        vm.startBroadcast(pk_0);
+        court.payArbitrationFee{value: arbitrationFee}(petitionId, evidence);
+        vm.stopBroadcast();
+        vm.startBroadcast(pk_1);
+        vm.recordLogs();
+        court.payArbitrationFee{value: arbitrationFee}(petitionId, evidence);
+        VmSafe.Log[] memory entries = vm.getRecordedLogs(); 
+        // console.log(uint(bytes32(entries[1].data)));
+        // console.log(uint(bytes32(entries[2].data)));
+        uint256 requestId = uint(bytes32(entries[2].data));
+        vrf.fulfillRandomWords(requestId, courtAddr);
+        vm.stopBroadcast();
+    }
+
+    function allTheWayToChallenge() public returns (uint256) {
         vm.startBroadcast(pk_0); 
         uint256 txFee = marketplace.calculateNebulaiTxFee(projectFee);
         testToken.approve(marketplaceAddr, projectFee + txFee);
@@ -89,57 +150,55 @@ contract CreateTestProjects is Script, TestProjectStorage {
             detailsURI
         );
         vm.stopBroadcast();
-        vm.startBroadcast(pk_1); // activate and complete
+
+        vm.startBroadcast(pk_1); 
         testToken.approve(marketplaceAddr, providerStake);
         marketplace.activateProject(projectId);
+
+        testToken.approve(marketplaceAddr, providerStake);
         marketplace.completeProject(projectId);
         vm.stopBroadcast();
-        vm.startBroadcast(pk_0); // challenge
+
+        vm.startBroadcast(pk_0); 
         marketplace.challengeProject(projectId, changeOrderProjectFee, changeOrderStakeForfeit, changeOrderDetails);
         vm.stopBroadcast();
+
+        return projectId;
     }
-}
 
-contract InitiateArbitration is Script, TestProjectStorage {
-
-    // make sure block timestamp has been advanced in anvil!
-
-    uint256 latestProjectId = marketplace.projectIds();
-
-    function run() public {
+    function startArbitration(uint256 _projectId) public {
         vm.startBroadcast(pk_0);
-        marketplace.disputeProject(
-            latestProjectId,
-            changeOrderProjectFee, 
-            changeOrderStakeForfeit
-        );
+        marketplace.disputeProject(_projectId,changeOrderProjectFee, changeOrderStakeForfeit);
         vm.stopBroadcast();
-    }
-}
 
-contract PayArbitrationFees is Script, TestProjectStorage {
-
-    uint256 latestProjectId = marketplace.projectIds();
-
-    function run() public {
         uint256 arbitrationFee = court.calculateArbitrationFee(false);
-        uint256 petitionId = marketplace.getArbitrationPetitionId(latestProjectId);
+        uint256 petitionId = marketplace.getArbitrationPetitionId(_projectId);
         vm.startBroadcast(pk_0);
         court.payArbitrationFee{value: arbitrationFee}(petitionId, evidence);
         vm.stopBroadcast();
         vm.startBroadcast(pk_1);
+        vm.recordLogs();
         court.payArbitrationFee{value: arbitrationFee}(petitionId, evidence);
-        // VmSafe.Log[] memory entries = vm.getRecordedLogs(); 
-        // uint256 requestId = uint(bytes32(entries[1].));
-        // // uint256 requestId = uint(bytes32(entries[2].data));
-        vm.stopBroadcast();
-
-        vm.startBroadcast(pk_0);
-        vrf.fulfillRandomWords(latestProjectId, courtAddr);
+        VmSafe.Log[] memory entries = vm.getRecordedLogs(); 
+        uint256 requestId = uint(bytes32(entries[2].data));
+        vrf.fulfillRandomWords(requestId, courtAddr);
         vm.stopBroadcast();
     }
+
+    function aFewMore() public {
+        uint256 id = create();
+        activate(id);
+        id = create();
+        activate(id);
+        complete(id);
+        id = create();
+        activate(id);
+        complete(id);
+        approve(id);
+        id = create();
+        activate(id);
+        complete(id);
+        challenge(id);
+    }
+       
 }
-
-
-
-
