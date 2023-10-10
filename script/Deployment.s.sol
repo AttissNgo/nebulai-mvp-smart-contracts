@@ -86,7 +86,6 @@ contract DeploymentLocal is Script {
 
     address[] public approvedTokens;
 
-
     function setUp() public {}
 
     function run() public {
@@ -100,9 +99,6 @@ contract DeploymentLocal is Script {
         vrf = new VRFCoordinatorV2Mock(1, 1); 
         subscriptionId = vrf.createSubscription();
         vrf.fundSubscription(subscriptionId, 10 ether);
-        // !!!! 
-        // DON'T FORGET TO REGISTER CONSUMER WITH CHAINLINK WHEN DEPLOYING ON MUMBAI!!!
-        // !!!!
         // deploy test token
         testToken = new NebulaiTestTokenFaucet();
         // deploy governor
@@ -113,7 +109,6 @@ contract DeploymentLocal is Script {
         juryPool = new JuryPool(address(governor), address(whitelist), minimumJurorStake);
         // calculate future marketplace address
         uint64 nonce = vm.getNonce(vm.addr(pk_0));
-        // console.log(nonce);
         address predictedMarketplace = computeCreateAddress(vm.addr(pk_0), nonce + 2);
         console.log(predictedMarketplace);
         // deploy court
@@ -153,7 +148,9 @@ contract DeploymentLocal is Script {
         }
         vm.stopBroadcast();
 
-        string memory obj1 = "some key";
+        string memory obj1 = "local";
+        string memory valueKey = ".anvil";
+
         string memory usdtMockAddr = vm.serializeAddress(obj1, "USDTMockAddress", address(usdt));
         string memory vrfMockAddr = vm.serializeAddress(obj1, "VRFMockAddress", address(vrf));
         
@@ -165,16 +162,16 @@ contract DeploymentLocal is Script {
         string memory escrowFactoryAddr = vm.serializeAddress(obj1, "EscrowFactoryAddress", address(escrowFactory));
         string memory marketplaceAddr = vm.serializeAddress(obj1, "MarketplaceAddress", address(marketplace));
 
-        vm.writeJson(usdtMockAddr, "./deploymentInfo.json");
-        vm.writeJson(vrfMockAddr, "./deploymentInfo.json");
+        vm.writeJson(usdtMockAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(vrfMockAddr, "./deploymentInfo.json", valueKey);
 
-        vm.writeJson(testTokenAddr, "./deploymentInfo.json");
-        vm.writeJson(govAddr, "./deploymentInfo.json");
-        vm.writeJson(whitelistAddr, "./deploymentInfo.json");
-        vm.writeJson(juryPoolAddr, "./deploymentInfo.json");
-        vm.writeJson(courtAddr, "./deploymentInfo.json");
-        vm.writeJson(escrowFactoryAddr, "./deploymentInfo.json");
-        vm.writeJson(marketplaceAddr, "./deploymentInfo.json");
+        vm.writeJson(testTokenAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(govAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(whitelistAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(juryPoolAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(courtAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(escrowFactoryAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(marketplaceAddr, "./deploymentInfo.json", valueKey);
 
         // register jurors
         uint256 jurorMinStake = juryPool.minimumStake();
@@ -209,19 +206,8 @@ contract DeploymentMumbai is Script {
         0x298334B4895392b0BA15261194cF1642A4adf9Fc // attiss
     ];
     uint256 public sigsRequired = 2;
-    
-    // address[] public users = [
-    //     0x90F79bf6EB2c4f870365E785982E1f101E93b906, // localhost
-    //     0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65, // localhost
-    //     0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc, // localhost
-    //     0x976EA74026E726554dB657fA54763abd0C3a0aa9, // localhost 
-    //     0x14dC79964da2C08b23698B3D3cc7Ca32193d9955, // localhost
-    //     0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f, // localhost
-    //     0xa0Ee7A142d267C1f36714E4a8F75612F20a79720 // localhost
-    // ];
 
     address[] public approvedTokens;
-
 
     function setUp() public {}
 
@@ -243,7 +229,6 @@ contract DeploymentMumbai is Script {
         juryPool = new JuryPool(address(governor), address(whitelist), minimumJurorStake);
         // calculate future marketplace address
         uint64 nonce = vm.getNonce(vm.addr(pk_0));
-        // console.log(nonce);
         address predictedMarketplace = computeCreateAddress(vm.addr(pk_0), nonce + 2);
         console.log(predictedMarketplace);
         // deploy court
@@ -252,7 +237,7 @@ contract DeploymentMumbai is Script {
             address(juryPool),
             vrfMumbai,
             subscriptionId,
-            predictedMarketplace ////////////////
+            predictedMarketplace 
         );
         // deploy escrow factory
         escrowFactory = new EscrowFactory();
@@ -268,7 +253,9 @@ contract DeploymentMumbai is Script {
         
         vm.stopBroadcast();
 
-        string memory obj1 = "some key";
+        string memory obj1 = "mumbai";
+        string memory valueKey = ".mumbai";
+
         string memory testTokenAddr = vm.serializeAddress(obj1, "TestToken", address(testToken));
         string memory govAddr = vm.serializeAddress(obj1, "GovernorAddress", address(governor));
         string memory whitelistAddr = vm.serializeAddress(obj1, "WhitelistAddress", address(whitelist));
@@ -277,13 +264,13 @@ contract DeploymentMumbai is Script {
         string memory escrowFactoryAddr = vm.serializeAddress(obj1, "EscrowFactoryAddress", address(escrowFactory));
         string memory marketplaceAddr = vm.serializeAddress(obj1, "MarketplaceAddress", address(marketplace));
 
-        vm.writeJson(testTokenAddr, "./deploymentInfo.json");
-        vm.writeJson(govAddr, "./deploymentInfo.json");
-        vm.writeJson(whitelistAddr, "./deploymentInfo.json");
-        vm.writeJson(juryPoolAddr, "./deploymentInfo.json");
-        vm.writeJson(courtAddr, "./deploymentInfo.json");
-        vm.writeJson(escrowFactoryAddr, "./deploymentInfo.json");
-        vm.writeJson(marketplaceAddr, "./deploymentInfo.json");
+        vm.writeJson(testTokenAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(govAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(whitelistAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(juryPoolAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(courtAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(escrowFactoryAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(marketplaceAddr, "./deploymentInfo.json", valueKey);
     }
 }
 

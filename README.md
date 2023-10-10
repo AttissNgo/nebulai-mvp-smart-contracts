@@ -1,4 +1,5 @@
-
+## Dependencies
+Open Zeppelin, Solmate, Chainlink (VRF mock for local testing)
 
 ## Access Control
 
@@ -46,7 +47,7 @@ Abstract: A unique Escrow smart contract is deployed for every Project created i
 #### Escrow Factory smart contract 
 • Called by Marketplace to deploy Escrow contract when a Project is created
 
-# Arbitration
+## Arbitration
 
 Abstract: Although Marketplace encourages an opportunity for Buyer and Provider to resolve disputes without arbitration (via Change Order), sometimes arbitration will be necessary. Disputes are resolved by a randomly-drawn jury of Nebulai users. 
 
