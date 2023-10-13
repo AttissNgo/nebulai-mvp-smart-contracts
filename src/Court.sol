@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
+import "./DataStructuresLibrary.sol";
 import "chainlink/VRFCoordinatorV2Interface.sol";
 import "chainlink/VRFConsumerBaseV2.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -9,7 +10,7 @@ import "./Interfaces/IGovernor.sol";
 import "./Interfaces/IMarketplace.sol";
 import "./Interfaces/IJuryPool.sol";
 
-contract Court is VRFConsumerBaseV2 {
+contract Court is VRFConsumerBaseV2, DataStructuresLibrary {
     using Counters for Counters.Counter;
 
     address public immutable GOVERNOR;
@@ -33,48 +34,48 @@ contract Court is VRFConsumerBaseV2 {
     uint32 public numWords = 2; 
     mapping(uint256 => uint256) public vrfRequestToPetition;
 
-    /**
-     * @notice the stage of a petition
-     * Discovery - evidence may be submitted (after paying arbitration fee)
-     * JurySelection - jury is drawn randomly and drawn jurors may accept the case
-     * Voting - jurors commit a hidden vote
-     * Ruling - jurors reveal their votes
-     * Verdict - all votes have been counted and a ruling is made
-     * DefaultJudgement - one party does not pay arbitration fee, petition is ruled in favor of paying party
-     * Dismissed - case is invalid and Marketplace reverts to original project conditions
-     * SettledExternally - case was settled by change order in Marketplace and arbitration does not progress
-     */
-    enum Phase {
-        Discovery,
-        JurySelection, 
-        Voting, 
-        Ruling, 
-        Verdict,
-        DefaultJudgement, 
-        Dismissed, 
-        SettledExternally 
-    }
+    // /**
+    //  * @notice the stage of a petition
+    //  * Discovery - evidence may be submitted (after paying arbitration fee)
+    //  * JurySelection - jury is drawn randomly and drawn jurors may accept the case
+    //  * Voting - jurors commit a hidden vote
+    //  * Ruling - jurors reveal their votes
+    //  * Verdict - all votes have been counted and a ruling is made
+    //  * DefaultJudgement - one party does not pay arbitration fee, petition is ruled in favor of paying party
+    //  * Dismissed - case is invalid and Marketplace reverts to original project conditions
+    //  * SettledExternally - case was settled by change order in Marketplace and arbitration does not progress
+    //  */
+    // enum Phase {
+    //     Discovery,
+    //     JurySelection, 
+    //     Voting, 
+    //     Ruling, 
+    //     Verdict,
+    //     DefaultJudgement, 
+    //     Dismissed, 
+    //     SettledExternally 
+    // }
 
-    struct Petition {
-        uint256 petitionId;
-        uint256 projectId;
-        uint256 adjustedProjectFee;
-        uint256 providerStakeForfeit;
-        address plaintiff;
-        address defendant;
-        uint256 arbitrationFee;
-        bool feePaidPlaintiff;
-        bool feePaidDefendant;
-        uint256 discoveryStart;
-        uint256 selectionStart;
-        uint256 votingStart;
-        uint256 rulingStart;
-        uint256 verdictRenderedDate;
-        bool isAppeal;
-        bool petitionGranted;
-        Phase phase;
-        string[] evidence;
-    }
+    // struct Petition {
+    //     uint256 petitionId;
+    //     uint256 projectId;
+    //     uint256 adjustedProjectFee;
+    //     uint256 providerStakeForfeit;
+    //     address plaintiff;
+    //     address defendant;
+    //     uint256 arbitrationFee;
+    //     bool feePaidPlaintiff;
+    //     bool feePaidDefendant;
+    //     uint256 discoveryStart;
+    //     uint256 selectionStart;
+    //     uint256 votingStart;
+    //     uint256 rulingStart;
+    //     uint256 verdictRenderedDate;
+    //     bool isAppeal;
+    //     bool petitionGranted;
+    //     Phase phase;
+    //     string[] evidence;
+    // }
 
     struct Jury {
         address[] drawnJurors;

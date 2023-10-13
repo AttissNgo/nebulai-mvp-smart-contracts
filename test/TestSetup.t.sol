@@ -12,9 +12,10 @@ import "../src/JuryPool.sol";
 import "../src/Court.sol";
 import "../src/EscrowFactory.sol";
 import "../src/Marketplace.sol";
+import "../src/DataStructuresLibrary.sol";
 
 
-contract TestSetup is Test {
+contract TestSetup is Test, DataStructuresLibrary {
 
     // mocks
     USDTMock public usdt; 
@@ -77,7 +78,6 @@ contract TestSetup is Test {
         // deploy contracts
         usdt = new USDTMock(); 
         vrf = new VRFCoordinatorV2Mock(1, 1); 
-        // vm.prank(admin1);
         subscriptionId = vrf.createSubscription();
         vrf.fundSubscription(subscriptionId, 100 ether);
         governor = new Governor(admins, sigsRequired);
@@ -103,14 +103,7 @@ contract TestSetup is Test {
             address(escrowFactory),
             approvedTokens
         );
-        // emit log_address(address(marketplace));
-        // register new marketplace address in court
-        // vm.prank(admin1);
-        // bytes memory data = abi.encodeWithSignature("registerMarketplace(address)", address(marketplace));
-        // uint256 txIndex = governor.proposeTransaction(address(court), 0, data);
         vm.stopPrank();
-        // util_executeGovernorTx(txIndex);
-
 
         // supply ether & usdt
         for(uint i; i < users.length; ++i) {

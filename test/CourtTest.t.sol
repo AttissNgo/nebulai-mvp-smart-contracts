@@ -245,7 +245,7 @@ contract CourtTest is Test, TestSetup {
         assertEq(p.verdictRenderedDate, 0);
         assertEq(p.isAppeal, false);
         assertEq(p.petitionGranted, false);
-        assertEq(uint(p.phase), uint(Court.Phase.Discovery));
+        assertEq(uint(p.phase), uint(Phase.Discovery));
         assertEq(marketplace.getArbitrationPetitionId(projectId_MATIC), p.petitionId);
     }
 
@@ -286,7 +286,7 @@ contract CourtTest is Test, TestSetup {
         assertEq(p.feePaidDefendant, true);
         assertEq(p.evidence[2], evidence1[0]);
         assertEq(p.evidence[3], evidence1[1]);
-        assertEq(uint(p.phase), uint(Court.Phase.JurySelection));
+        assertEq(uint(p.phase), uint(Phase.JurySelection));
     }
 
     function test_payArbitrationFee_revert() public {
@@ -391,7 +391,7 @@ contract CourtTest is Test, TestSetup {
         vm.resumeGasMetering();
         // WRONG PHASE
         Court.Petition memory p = court.getPetition(petitionId_ERC20);
-        assertEq(uint(p.phase), uint(Court.Phase.Discovery));
+        assertEq(uint(p.phase), uint(Phase.Discovery));
         vm.expectRevert(Court.Court__ArbitrationFeeCannotBeReclaimed.selector);
         vm.prank(p.plaintiff);
         court.reclaimArbitrationFee(p.petitionId);
@@ -448,7 +448,7 @@ contract CourtTest is Test, TestSetup {
         vm.prank(petition.defendant);
         uint256 appealPetitionId = marketplace.appealRuling(petition.projectId);
         Court.Petition memory appealPetition = court.getPetition(appealPetitionId);
-        assertEq(uint(appealPetition.phase), uint(Court.Phase.Discovery));
+        assertEq(uint(appealPetition.phase), uint(Phase.Discovery));
         assertEq(appealPetition.isAppeal, true);
         // arbitration fee is for 5 jurors rather than 3
         assertEq(appealPetition.arbitrationFee, court.jurorFlatFee() * 5);
@@ -465,7 +465,7 @@ contract CourtTest is Test, TestSetup {
         emit CaseDismissed(p.petitionId);
         court.dismissUnpaidCase(p.petitionId);
         p = court.getPetition(petitionId_MATIC);
-        assertEq(uint(p.phase), uint(Court.Phase.Dismissed));
+        assertEq(uint(p.phase), uint(Phase.Dismissed));
     }
 
     // function test_dismissUnpaidCase_revert() public {}
@@ -489,7 +489,7 @@ contract CourtTest is Test, TestSetup {
         vm.prank(project.provider);
         marketplace.approveChangeOrder(project.projectId);
         petition = court.getPetition(petition.petitionId);
-        assertEq(uint(petition.phase), uint(Court.Phase.SettledExternally));
+        assertEq(uint(petition.phase), uint(Phase.SettledExternally));
     }
 
     function test_settledExternally_revert() public {
@@ -529,7 +529,7 @@ contract CourtTest is Test, TestSetup {
         assertEq(petition.plaintiff.balance, plaintiffBalBefore + petition.arbitrationFee);
         // phase updated
         petition = court.getPetition(petition.petitionId);
-        assertEq(uint(petition.phase), uint(Court.Phase.DefaultJudgement));
+        assertEq(uint(petition.phase), uint(Phase.DefaultJudgement));
         // petition is granted
         assertEq(petition.petitionGranted, true);
     }
@@ -670,7 +670,7 @@ contract CourtTest is Test, TestSetup {
         vm.prank(jury.drawnJurors[2]);
         court.acceptCase{value: jurorStake}(p.petitionId);
         p = court.getPetition(petitionId_ERC20);
-        assertEq(uint(p.phase), uint(Court.Phase.Voting));
+        assertEq(uint(p.phase), uint(Phase.Voting));
     }
 
     function test_commitVote() public {
@@ -733,7 +733,7 @@ contract CourtTest is Test, TestSetup {
         vm.prank(jury.confirmedJurors[2]);
         court.commitVote(p.petitionId, commit);
         p = court.getPetition(petitionId_MATIC);
-        assertEq(uint(p.phase), uint(Court.Phase.Ruling));
+        assertEq(uint(p.phase), uint(Phase.Ruling));
         assertEq(p.rulingStart, block.timestamp);
     }
 
@@ -817,7 +817,7 @@ contract CourtTest is Test, TestSetup {
         vm.prank(jury.confirmedJurors[2]);
         court.revealVote(p.petitionId, juror2_vote, "someSalt");
         p = court.getPetition(petitionId_ERC20);
-        assertEq(uint(p.phase), uint(Court.Phase.Verdict));
+        assertEq(uint(p.phase), uint(Phase.Verdict));
         assertEq(p.petitionGranted, true);
         assertEq(p.verdictRenderedDate, block.timestamp);
         // juror fees paid to majority voters
@@ -893,7 +893,7 @@ contract CourtTest is Test, TestSetup {
     function test_drawAdditionalJurors_revert() public {
         Court.Petition memory p = court.getPetition(petitionId_ERC20);
         // wrong phase 
-        assertEq(uint(p.phase), uint(Court.Phase.Discovery));
+        assertEq(uint(p.phase), uint(Phase.Discovery));
         vm.expectRevert(Court.Court__OnlyDuringJurySelection.selector);
         court.drawAdditionalJurors(p.petitionId);
         // jury selection period not over
@@ -959,7 +959,7 @@ contract CourtTest is Test, TestSetup {
         vm.prank(admin1);
         court.acceptCase{value: stake}(petition.petitionId);
         petition = court.getPetition(petition.petitionId);
-        assertEq(uint(petition.phase), uint(Court.Phase.Voting));
+        assertEq(uint(petition.phase), uint(Phase.Voting));
     }
 
     function test_assignAdditionalJurors_revert() public {
@@ -1119,7 +1119,7 @@ contract CourtTest is Test, TestSetup {
         assertEq(court.getCommit(newJuror, petition.petitionId), commit);
             // case has moved on to ruling
         petition = court.getPetition(petition.petitionId);
-        assertEq(uint(petition.phase), uint(Court.Phase.Ruling));
+        assertEq(uint(petition.phase), uint(Phase.Ruling));
     }
 
     function test_delinquentReveal_majority() public {
@@ -1152,7 +1152,7 @@ contract CourtTest is Test, TestSetup {
         // verdict has been rendered 
         petition = court.getPetition(petition.petitionId);
         assertEq(petition.verdictRenderedDate, block.timestamp);
-        assertEq(uint(petition.phase), uint(Court.Phase.Verdict));
+        assertEq(uint(petition.phase), uint(Phase.Verdict));
         assertEq(petition.petitionGranted, true);
         // jurors 0 & 1 fees have been allocated
         assertEq(court.getJurorFeesOwed(jury.confirmedJurors[0]), juror0_FeesOwedBefore + court.jurorFlatFee());
@@ -1213,7 +1213,7 @@ contract CourtTest is Test, TestSetup {
         vm.prank(jury.confirmedJurors[2]);
         court.commitVote(petition.petitionId, commit);
         petition = court.getPetition(petition.petitionId);
-        assertEq(uint(petition.phase), uint(Court.Phase.Ruling));
+        assertEq(uint(petition.phase), uint(Phase.Ruling));
         vm.expectRevert(Court.Court__RulingPeriodStillActive.selector);
         court.delinquentReveal(petition.petitionId);
         // no delinquent reveals
@@ -1319,7 +1319,7 @@ contract CourtTest is Test, TestSetup {
         court.breakTie(petition.petitionId, false);
         // verdict has been rendered
         petition = court.getPetition(petition.petitionId);
-        assertEq(uint(petition.phase), uint(Court.Phase.Verdict));
+        assertEq(uint(petition.phase), uint(Phase.Verdict));
         assertEq(petition.petitionGranted, false);
         // revealing jurors have been compensated appropriately
             // juror 1 voted true - no payment owed

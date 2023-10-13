@@ -189,7 +189,7 @@ contract MarketplaceTest is Test, TestSetup {
         assertEq(p.reviewPeriodLength, reviewPeriodLength);
         assertEq(p.dateCompleted, 0);
         assertEq(p.changeOrderPeriodInitiated, 0);
-        assertEq(uint(p.status), uint(Marketplace.Status.Created));
+        assertEq(uint(p.status), uint(Status.Created));
         assertEq(p.detailsURI, detailsURI);
         // fees captured
         assertEq(usdt.balanceOf(address(marketplace)), contractUsdtBalBefore + txFee);
@@ -222,7 +222,7 @@ contract MarketplaceTest is Test, TestSetup {
         assertEq(p.reviewPeriodLength, reviewPeriodLength);
         assertEq(p.dateCompleted, 0);
         assertEq(p.changeOrderPeriodInitiated, 0);
-        assertEq(uint(p.status), uint(Marketplace.Status.Created));
+        assertEq(uint(p.status), uint(Status.Created));
         assertEq(p.detailsURI, detailsURI);
         // fees captured: 
         assertEq(address(marketplace).balance, contractMaticBalBefore + txFee);
@@ -242,7 +242,7 @@ contract MarketplaceTest is Test, TestSetup {
         emit ProjectCancelled(testProjectId_MATIC, buyer, provider);
         marketplace.cancelProject(testProjectId_MATIC);
         Marketplace.Project memory p = marketplace.getProject(testProjectId_MATIC);
-        assertEq(uint(p.status), uint(Marketplace.Status.Cancelled));
+        assertEq(uint(p.status), uint(Status.Cancelled));
         assertEq(marketplace.getTxFeesHeld(p.projectId), 0);
         assertEq(address(marketplace).balance, contractBalBefore - txFeeHeld);
         assertEq(buyer.balance, buyerBalBefore + txFeeHeld);
@@ -255,7 +255,7 @@ contract MarketplaceTest is Test, TestSetup {
         emit ProjectCancelled(testProjectId_ERC20, buyer, provider);
         marketplace.cancelProject(testProjectId_ERC20);
         p = marketplace.getProject(testProjectId_ERC20);
-        assertEq(uint(p.status), uint(Marketplace.Status.Cancelled));
+        assertEq(uint(p.status), uint(Status.Cancelled));
         assertEq(marketplace.getTxFeesHeld(p.projectId), 0);
         assertEq(usdt.balanceOf(address(marketplace)), contractBalBefore - txFeeHeld);
         assertEq(usdt.balanceOf(buyer), buyerBalBefore + txFeeHeld);
@@ -283,7 +283,7 @@ contract MarketplaceTest is Test, TestSetup {
         emit ProjectActivated(p.projectId, p.buyer, p.provider);
         marketplace.activateProject{value: p.providerStake}(p.projectId);
         p = marketplace.getProject(p.projectId);
-        assertEq(uint(p.status), uint(Marketplace.Status.Active));
+        assertEq(uint(p.status), uint(Status.Active));
         assertEq(marketplace.getTxFeesHeld(p.projectId), 0);
         assertEq(marketplace.getTxFeesPaid(p.paymentToken), txFeesPaidBefore + txFeesHeldBefore);
     }
@@ -323,7 +323,7 @@ contract MarketplaceTest is Test, TestSetup {
             changeOrderDetailsURI
         );
         p = marketplace.getProject(testProjectId_ERC20);
-        assertEq(uint(p.status), uint(Marketplace.Status.Discontinued));
+        assertEq(uint(p.status), uint(Status.Discontinued));
         assertEq(p.changeOrderPeriodInitiated, block.timestamp);
         // change order in dedicated test...
     }
@@ -350,7 +350,7 @@ contract MarketplaceTest is Test, TestSetup {
         marketplace.completeProject(p.projectId);
         vm.stopPrank();
         p = marketplace.getProject(p.projectId);
-        assertEq(uint(p.status), uint(Marketplace.Status.Completed));
+        assertEq(uint(p.status), uint(Status.Completed));
         assertEq(p.dateCompleted, block.timestamp);
     }
 
@@ -380,7 +380,7 @@ contract MarketplaceTest is Test, TestSetup {
         emit ProjectApproved(p.projectId, p.buyer, p.provider);
         marketplace.approveProject(p.projectId);
         p = marketplace.getProject(testProjectId_ERC20);
-        assertEq(uint(p.status), uint(Marketplace.Status.Approved));
+        assertEq(uint(p.status), uint(Status.Approved));
     }
 
     function test_approve_project_revert() public {
@@ -416,7 +416,7 @@ contract MarketplaceTest is Test, TestSetup {
             changeOrderDetailsURI
         );
         p = marketplace.getProject(testProjectId_MATIC);
-        assertEq(uint(p.status), uint(Marketplace.Status.Challenged));
+        assertEq(uint(p.status), uint(Status.Challenged));
         assertEq(p.changeOrderPeriodInitiated, block.timestamp);
     }
 
@@ -471,7 +471,7 @@ contract MarketplaceTest is Test, TestSetup {
         vm.prank(provider);
         marketplace.delinquentPayment(p.projectId);
         p = marketplace.getProject(testProjectId_MATIC);
-        assertEq(uint(p.status), uint(Marketplace.Status.Resolved_DelinquentPayment));
+        assertEq(uint(p.status), uint(Status.Resolved_DelinquentPayment));
     }
 
     function test_delinquentPayment_revert() public {
@@ -518,7 +518,7 @@ contract MarketplaceTest is Test, TestSetup {
             p.providerStake
         );
         p = marketplace.getProject(testProjectId_MATIC);
-        assertEq(uint(p.status), uint(Marketplace.Status.Disputed));
+        assertEq(uint(p.status), uint(Status.Disputed));
         assertEq(marketplace.getArbitrationPetitionId(p.projectId), petitionId);
         // change order has been reset to default
         assertEq(marketplace.activeChangeOrder(p.projectId), false);
@@ -530,8 +530,8 @@ contract MarketplaceTest is Test, TestSetup {
         vm.resumeGasMetering();
         Marketplace.Project memory p = marketplace.getProject(testProjectId_ERC20);
         Court.Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(p.projectId));
-        assertEq(uint(p.status), uint(Marketplace.Status.Disputed));
-        assertEq(uint(petition.phase), uint(Court.Phase.Verdict));
+        assertEq(uint(p.status), uint(Status.Disputed));
+        assertEq(uint(petition.phase), uint(Phase.Verdict));
         assertEq(petition.isAppeal, false);
         vm.expectEmit(true, false, false, false);
         emit ProjectAppealed(p.projectId, 42, p.provider);
@@ -542,7 +542,7 @@ contract MarketplaceTest is Test, TestSetup {
         assertEq(appealPetition.isAppeal, true);
         // project status updated
         p = marketplace.getProject(p.projectId);
-        assertEq(uint(p.status), uint(Marketplace.Status.Appealed));
+        assertEq(uint(p.status), uint(Status.Appealed));
         // project ID mapped to new petition ID
         assertEq(marketplace.getArbitrationPetitionId(p.projectId), appealPetition.petitionId);
     }
@@ -580,7 +580,7 @@ contract MarketplaceTest is Test, TestSetup {
         (petition.petitionGranted) ? vm.prank(petition.defendant) : vm.prank(petition.plaintiff); // prank non-prevailing party
         marketplace.waiveAppeal(p.projectId);
         p = marketplace.getProject(testProjectId_MATIC);
-        assertEq(uint(p.status), uint(Marketplace.Status.Resolved_CourtOrder));
+        assertEq(uint(p.status), uint(Status.Resolved_CourtOrder));
     }
 
     function test_waiveAppeal_revert() public {
@@ -615,7 +615,7 @@ contract MarketplaceTest is Test, TestSetup {
         vm.prank(p.buyer);
         marketplace.resolveByCourtOrder(p.projectId);
         p = marketplace.getProject(testProjectId_MATIC);
-        assertEq(uint(p.status), uint(Marketplace.Status.Resolved_CourtOrder));
+        assertEq(uint(p.status), uint(Status.Resolved_CourtOrder));
     }
 
     function test_resolveByCourtOrder_revert() public {
@@ -650,7 +650,7 @@ contract MarketplaceTest is Test, TestSetup {
         vm.prank(p.buyer);
         marketplace.resolveDismissedCase(p.projectId);
         p = marketplace.getProject(testProjectId_ERC20);
-        assertEq(uint(p.status), uint(Marketplace.Status.Resolved_ArbitrationDismissed));
+        assertEq(uint(p.status), uint(Status.Resolved_ArbitrationDismissed));
     }
 
     function test_resolveDismissedCase_revert() public {
@@ -665,7 +665,7 @@ contract MarketplaceTest is Test, TestSetup {
         p = marketplace.getProject(testProjectId_ERC20);
         // assertEq(marketplace.isDisputed(p.projectId), true);
         Court.Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(p.projectId));
-        assertFalse(uint(petition.phase) == uint(Court.Phase.Dismissed));
+        assertFalse(uint(petition.phase) == uint(Phase.Dismissed));
         vm.expectRevert(Marketplace.Marketplace__CourtHasNotDismissedCase.selector);
         vm.prank(p.buyer);
         marketplace.resolveDismissedCase(p.projectId);
@@ -689,7 +689,8 @@ contract MarketplaceTest is Test, TestSetup {
             settlementURI
         );
         // change order created
-        Marketplace.ChangeOrder memory changeOrder = marketplace.getChangeOrder(p.projectId);
+        Marketplace.ChangeOrder[] memory changeOrders = marketplace.getChangeOrders(p.projectId);
+        Marketplace.ChangeOrder memory changeOrder = changeOrders[changeOrders.length - 1];
         assertEq(changeOrder.adjustedProjectFee, settlementProjectFee);
         assertEq(changeOrder.providerStakeForfeit, settlementProviderStakeForfeit);
         assertEq(changeOrder.detailsURI, settlementURI);
@@ -739,7 +740,9 @@ contract MarketplaceTest is Test, TestSetup {
         test_discontinueProject(); // uses ERC20 project
         vm.resumeGasMetering();
         assertEq(marketplace.activeChangeOrder(p.projectId), true);
-        Marketplace.ChangeOrder memory c = marketplace.getChangeOrder(p.projectId);
+        // Marketplace.ChangeOrder memory c = marketplace.getChangeOrder(p.projectId);
+        Marketplace.ChangeOrder[] memory changeOrders = marketplace.getChangeOrders(p.projectId);
+        Marketplace.ChangeOrder memory c = changeOrders[changeOrders.length - 1];
         assertEq(c.projectId, p.projectId);
         assertEq(c.dateProposed, block.timestamp);
         assertEq(c.proposedBy, buyer);
@@ -786,8 +789,10 @@ contract MarketplaceTest is Test, TestSetup {
         emit ChangeOrderApproved(p.projectId, p.buyer, p.provider);
         marketplace.approveChangeOrder(p.projectId);
         p = marketplace.getProject(testProjectId_ERC20);
-        assertEq(uint(p.status), uint(Marketplace.Status.Resolved_ChangeOrder));
-        Marketplace.ChangeOrder memory c = marketplace.getChangeOrder(p.projectId);
+        assertEq(uint(p.status), uint(Status.Resolved_ChangeOrder));
+        // Marketplace.ChangeOrder memory c = marketplace.getChangeOrder(p.projectId);
+        Marketplace.ChangeOrder[] memory changeOrders = marketplace.getChangeOrders(p.projectId);
+        Marketplace.ChangeOrder memory c = changeOrders[changeOrders.length - 1];
         assertEq(c.providerApproval, true);
     }
 
@@ -804,12 +809,26 @@ contract MarketplaceTest is Test, TestSetup {
         vm.prank(provider);
         marketplace.approveChangeOrder(p.projectId);
         p = marketplace.getProject(testProjectId_ERC20);
-        assertEq(uint(p.status), uint(Marketplace.Status.Resolved_ChangeOrder));
+        assertEq(uint(p.status), uint(Status.Resolved_ChangeOrder));
         vm.expectRevert(Marketplace.Marketplace__ChangeOrderNotValid.selector);
         vm.prank(provider);
         marketplace.approveChangeOrder(p.projectId);
     }
 
+    function test_settlement_approval_reverts_if_court_case_moves_past_discovery() public {
+        Project memory project = marketplace.getProject(testProjectId_ERC20);
+        test_proposeSettlement();
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
+        vm.prank(petition.plaintiff);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+        vm.prank(petition.defendant);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+        petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
+        assertEq(uint(petition.phase), uint(Phase.JurySelection));
+        vm.expectRevert(Marketplace.Marketplace__ChangeOrderNotValid.selector);
+        vm.prank(project.provider);
+        marketplace.approveChangeOrder(project.projectId);
+    }
 
     ////////////////////////
     ///   ESCROW TESTS   ///

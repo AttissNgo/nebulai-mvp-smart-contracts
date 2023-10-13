@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./Interfaces/IWhitelist.sol";
 import "./Interfaces/IEscrow.sol";
 import "./Interfaces/ICourt.sol";
+import "./DataStructuresLibrary.sol";
 
 interface IEscrowFactory {
     function createEscrowContract(
@@ -21,7 +22,7 @@ interface IEscrowFactory {
     ) external returns (address); 
 }
 
-contract Marketplace {
+contract Marketplace is DataStructuresLibrary {
     using Counters for Counters.Counter;
 
     address public immutable GOVERNOR;
@@ -35,94 +36,33 @@ contract Marketplace {
     address[] public erc20Tokens;
     mapping(address => bool) public isApprovedToken;
 
-
+    /**
+     * @notice transaction fee charged for creating projects in marketplace, represented as a percentage of project fee
+     */
     uint256 public nebulaiTxFee = 3;
     uint256 public constant minimumTxFee = 3 ether;
+
     /**
      * @dev Transaction fees held for a Project ID (fees will be returned if Project is Cancelled)
      */
     mapping(uint256 => uint256) private txFeesHeld;
+
     /**
      * @dev token address (zero for native) to amount held by Marketplace (non-refundable)
      */
     mapping(address => uint256) private txFeesPaid;
+
     /**
      * @dev token address (zero for native) to amount received from completed Projects
      */
     mapping(address => uint256) private commissionFees; 
 
-    /**
-     * @notice the state of a Project
-     * Created - Escrow holds project fee, but work has not started
-     * Cancelled - project is withdrawn by buyer before provider begins work 
-     * Active - provider has staked in Escrow and has begun work 
-     * Discontinued - either party quits and a change order period begins to handle partial payment
-     * Completed - provider claims project is complete and is awaiting buyer approval
-     * Approved - buyer is satisfied, escrow will release project fee to provider, Project is closed
-     * Challenged - buyer is unsatisfied and submits a Change Order - provider has a chance to accept OR go to arbitration 
-     * Disputed - Change Order NOT accepted by provider -> Project goes to arbitration
-     * Appealed - the correctness of the court's decision is challenged -> a new arbitration case is opened
-     * Resolved_ChangeOrder - escrow releases funds according to change order
-     * Resolved_CourtOrder - escrow releases funds according to court petition
-     * Resolved_DelinquentPayment - escrow releases funds according to original agreement
-     * Resolved_ArbitrationDismissed - escrow releases funds according to original agreement
-     */
-    enum Status { 
-        Created, 
-        Cancelled, 
-        Active, 
-        Discontinued, 
-        Completed, 
-        Approved, 
-        Challenged, 
-        Disputed,
-        Appealed, 
-        Resolved_ChangeOrder, 
-        Resolved_CourtOrder, 
-        Resolved_DelinquentPayment, 
-        Resolved_ArbitrationDismissed 
-    }
-
-    /**
-     * @notice details of an agreement between a buyer and service provider
-     */
-    struct Project {
-        uint256 projectId;
-        address buyer;
-        address provider;
-        address escrow;
-        address paymentToken;
-        uint256 projectFee;
-        uint256 providerStake;
-        uint256 dueDate;
-        uint256 reviewPeriodLength;
-        uint256 dateCompleted;
-        uint256 changeOrderPeriodInitiated;
-        uint256 nebulaiTxFee;
-        Status status;
-        string detailsURI;
-    }
-
     Counters.Counter public projectIds;
     mapping(uint256 => Project) private projects;
 
-    /**
-     * @notice proposal to alter payment details of a Project
-     */
-    struct ChangeOrder {
-        uint256 projectId;
-        uint256 dateProposed;
-        address proposedBy;
-        uint256 adjustedProjectFee;
-        uint256 providerStakeForfeit;
-        bool buyerApproval;
-        bool providerApproval;
-        string detailsURI;
-    }
-    /**
-     * @dev only one active Change Order per Project ID is possible
-     */
-    mapping(uint256 => ChangeOrder) private changeOrders; 
+    Counters.Counter public changeOrderIds;
+    mapping(uint256 => ChangeOrder[]) private changeOrders; // only one active Change Order per Project ID is possible
+
     /**
      * @dev Project ID mapped to Petition ID in Court smart contract
      */
@@ -132,6 +72,7 @@ contract Marketplace {
      * @notice time to approve a Change Order after it is created
      */
     uint24 public constant CHANGE_ORDER_PERIOD = 7 days;
+
     /**
      * @notice time to appeal a Court decision after the verdict has been rendered
      */
@@ -464,9 +405,14 @@ contract Marketplace {
             revert Marketplace__ChangeOrderPeriodStillActive();
         }
         p.status = Status.Disputed;
-        ChangeOrder memory emptyChangeOrder;
-        p.changeOrderPeriodInitiated = 0;
-        changeOrders[p.projectId] = emptyChangeOrder;
+        // ChangeOrder memory emptyChangeOrder;
+        // p.changeOrderPeriodInitiated = 0;
+        // changeOrders[p.projectId] = emptyChangeOrder;
+        
+        // we know change order exists, so no need to check
+        ChangeOrder storage order = changeOrders[_projectId][changeOrders[_projectId].length - 1];
+        order.active = false;
+
         if(_adjustedProjectFee > p.projectFee) revert Marketplace__AdjustedFeeExceedsProjectFee();
         if(_providerStakeForfeit > p.providerStake) revert Marketplace__ForfeitExceedsProviderStake();
         uint256 petitionId = COURT.createPetition(
@@ -490,8 +436,8 @@ contract Marketplace {
         Project storage p = projects[_projectId];
         if(msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
         if(p.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
-        ICourt.Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
-        if(petition.phase != ICourt.Phase.Verdict) revert Marketplace__CourtHasNotRuled();
+        Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
+        if(petition.phase != Phase.Verdict) revert Marketplace__CourtHasNotRuled();
         if(block.timestamp >= petition.verdictRenderedDate + APPEAL_PERIOD) revert Marketplace__AppealPeriodOver();
         p.status = Status.Appealed;
         uint256 petitionId = COURT.appeal(_projectId);
@@ -507,8 +453,8 @@ contract Marketplace {
     function waiveAppeal(uint256 _projectId) external {
         Project storage project = projects[_projectId];
         if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
-        ICourt.Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
-        if(petition.phase != ICourt.Phase.Verdict) revert Marketplace__CourtHasNotRuled();
+        Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
+        if(petition.phase != Phase.Verdict) revert Marketplace__CourtHasNotRuled();
         if(petition.petitionGranted) {
             if(msg.sender != petition.defendant) revert Marketplace__OnlyNonPrevailingParty();
         } else {
@@ -526,8 +472,8 @@ contract Marketplace {
         Project storage project = projects[_projectId];
         if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
         if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
-        ICourt.Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
-        if(petition.phase != ICourt.Phase.Verdict && petition.phase != ICourt.Phase.DefaultJudgement) {
+        Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
+        if(petition.phase != Phase.Verdict && petition.phase != Phase.DefaultJudgement) {
             revert Marketplace__CourtHasNotRuled();
         }
         if(!petition.isAppeal) {
@@ -545,8 +491,8 @@ contract Marketplace {
         Project storage project = projects[_projectId];
         if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
         if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
-        ICourt.Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
-        if(petition.phase != ICourt.Phase.Dismissed) revert Marketplace__CourtHasNotDismissedCase();
+        Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
+        if(petition.phase != Phase.Dismissed) revert Marketplace__CourtHasNotDismissedCase();
         project.status = Status.Resolved_ArbitrationDismissed;
         emit ResolvedByDismissedCase(_projectId, petition.petitionId);
     }
@@ -567,8 +513,8 @@ contract Marketplace {
         Project memory project = projects[_projectId];
         if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
         if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
-        ICourt.Petition memory petition = COURT.getPetition(getArbitrationPetitionId(project.projectId));
-        if(petition.phase != ICourt.Phase.Discovery) revert Marketplace__CourtCaseAlreadyInitiated();
+        Petition memory petition = COURT.getPetition(getArbitrationPetitionId(project.projectId));
+        if(petition.phase != Phase.Discovery) revert Marketplace__CourtCaseAlreadyInitiated();
         _proposeChangeOrder(
             _projectId,
             _adjustedProjectFee,
@@ -585,6 +531,7 @@ contract Marketplace {
     /**
      * @notice creates a new Change Order
      * @dev sets approval as true for user who proposes Change Order
+     * @dev sets 'active' field on most recent Change Order to false, ensuring that only one active Change Order per Proejct
      */
     function _proposeChangeOrder(
         uint256 _projectId,
@@ -603,17 +550,26 @@ contract Marketplace {
         ) revert Marketplace__ChangeOrderCannotBeProposed();
         if(_adjustedProjectFee > p.projectFee) revert Marketplace__AdjustedFeeExceedsProjectFee();
         if(_providerStakeForfeit > p.providerStake) revert Marketplace__ForfeitExceedsProviderStake();
-        changeOrders[_projectId] = ChangeOrder({
+        changeOrderIds.increment();
+        ChangeOrder memory newOrder = ChangeOrder({
+            changeOrderId: changeOrderIds.current(),
             projectId: _projectId,
             dateProposed: block.timestamp,
             proposedBy: msg.sender,
             adjustedProjectFee: _adjustedProjectFee,
             providerStakeForfeit: _providerStakeForfeit,
+            active: true,
             buyerApproval: (msg.sender == p.buyer) ? true : false,
             providerApproval: (msg.sender == p.provider) ? true : false,
             detailsURI: _changeOrderDetailsURI
         }); 
-        emit ChangeOrderProposed(p.projectId);
+        ChangeOrder[] storage orders = changeOrders[_projectId];
+        if(orders.length > 0) {
+            orders[orders.length - 1].active = false;
+        }
+        orders.push(newOrder);
+        changeOrders[_projectId] = orders;
+        emit ChangeOrderProposed(_projectId);
     }
 
     /**
@@ -628,7 +584,9 @@ contract Marketplace {
             p.status != Status.Challenged && 
             p.status != Status.Disputed 
         ) revert Marketplace__ChangeOrderNotValid();
-        ChangeOrder storage c = changeOrders[_projectId];
+        // ChangeOrder storage c = changeOrders[_projectId];
+        // ChangeOrder[] memory orders = getChangeOrders(_projectId);
+        ChangeOrder storage c = changeOrders[_projectId][changeOrders[_projectId].length -1];
         if(
             msg.sender == p.buyer && c.buyerApproval ||
             msg.sender == p.provider && c.providerApproval
@@ -646,8 +604,8 @@ contract Marketplace {
      * @dev updates Petition phase in Court contract if Change Order is settlement
      */
     function _validSettlement(uint256 _projectId) private {
-        ICourt.Petition memory petition = COURT.getPetition(getArbitrationPetitionId(_projectId));
-        if(petition.phase != ICourt.Phase.Discovery) revert Marketplace__ChangeOrderNotValid();
+        Petition memory petition = COURT.getPetition(getArbitrationPetitionId(_projectId));
+        if(petition.phase != Phase.Discovery) revert Marketplace__ChangeOrderNotValid();
         COURT.settledExternally(petition.petitionId);
     }
 
@@ -751,14 +709,28 @@ contract Marketplace {
         return commissionFees[_paymentToken];
     }
 
-    function getChangeOrder(uint256 _projectId) public view returns (ChangeOrder memory) {
+    // function getChangeOrder(uint256 _projectId) public view returns (ChangeOrder memory) {
+    //     return changeOrders[_projectId];
+    // }
+
+    function getChangeOrders(uint256 _projectId) public view returns (ChangeOrder[] memory) {
         return changeOrders[_projectId];
     }
 
+    function getActiveChangeOrder(uint256 _projectId) public view returns (ChangeOrder memory) {
+        if(!activeChangeOrder(_projectId)) revert Marketplace__NoActiveChangeOrder();
+        return changeOrders[_projectId][changeOrders[_projectId].length - 1];
+    }
+
     function activeChangeOrder(uint256 _projectId) public view returns (bool) {
-        ChangeOrder memory c = getChangeOrder(_projectId);
-        if(c.dateProposed == 0) return false;
-        return true;
+        // ChangeOrder memory c = getChangeOrder(_projectId);
+        // if(c.dateProposed == 0) return false;
+        // return true;
+        ChangeOrder[] memory orders = getChangeOrders(_projectId);
+        if(orders.length > 0 && orders[orders.length - 1].active) {
+            return true;
+        }
+        return false;
     }
 
     function getArbitrationPetitionId(uint256 projectId) public view returns (uint256) {

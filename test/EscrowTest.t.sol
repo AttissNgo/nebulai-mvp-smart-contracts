@@ -434,7 +434,7 @@ contract EscrowTest is Test, TestSetup {
         vm.prank(project.buyer);
         marketplace.approveChangeOrder(project.projectId);
         Court.Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
-        assertEq(uint(petition.phase), uint(Court.Phase.SettledExternally));
+        assertEq(uint(petition.phase), uint(Phase.SettledExternally));
         _setBeforeBalances(project.paymentToken, project.buyer, project.provider, project.escrow);
         vm.resumeGasMetering();
          // provider can withdraw adjusted project fee + stake (- forfeit) - commission

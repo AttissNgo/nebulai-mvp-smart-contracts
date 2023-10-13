@@ -4,8 +4,9 @@ pragma solidity ^0.8.13;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./Interfaces/IMarketplace.sol";
 import "./Interfaces/ICourt.sol";
+import "./DataStructuresLibrary.sol";
 
-contract Escrow {
+contract Escrow is DataStructuresLibrary {
 
     address public immutable MARKETPLACE;
     uint256 public immutable PROJECT_ID;
@@ -94,7 +95,7 @@ contract Escrow {
                 if(!success) revert Escrow__CommissionTransferFailed();
             } else {
                 bool success = IERC20(PAYMENT_TOKEN).transfer(MARKETPLACE, commissionFee);
-                if(!success) revert Escrow__TransferFailed();
+                if(!success) revert Escrow__CommissionTransferFailed();
             }
             IMarketplace(MARKETPLACE).receiveCommission(PROJECT_ID, commissionFee);
         }
@@ -102,40 +103,41 @@ contract Escrow {
     }
 
     function isReleasable() public view returns (bool) {
-        IMarketplace.Status status = IMarketplace(MARKETPLACE).getProjectStatus(PROJECT_ID);
+        Status status = IMarketplace(MARKETPLACE).getProjectStatus(PROJECT_ID);
         if(
-            status == IMarketplace.Status.Cancelled ||
-            status == IMarketplace.Status.Approved ||
-            status == IMarketplace.Status.Resolved_ChangeOrder ||
-            status == IMarketplace.Status.Resolved_CourtOrder ||
-            status == IMarketplace.Status.Resolved_DelinquentPayment ||
-            status == IMarketplace.Status.Resolved_ArbitrationDismissed
+            status == Status.Cancelled ||
+            status == Status.Approved ||
+            status == Status.Resolved_ChangeOrder ||
+            status == Status.Resolved_CourtOrder ||
+            status == Status.Resolved_DelinquentPayment ||
+            status == Status.Resolved_ArbitrationDismissed
         ) return true;
         return false;
     }
 
     /**
-     * @notice calculates amound Escrow will release to _user
+     * @notice calculates amount Escrow will release to _user
+     * @dev sets commissionFee, which will be transferred to Marketplace when provider withdraws
      */
     function amountDue(address _user) public returns (uint256) {
         uint256 amount;
         IMarketplace marketplace = IMarketplace(MARKETPLACE);
-        IMarketplace.Status status = marketplace.getProjectStatus(PROJECT_ID);
-        if(status == IMarketplace.Status.Cancelled) {
+        Status status = marketplace.getProjectStatus(PROJECT_ID);
+        if(status == Status.Cancelled) {
             (_user == BUYER) ? amount = PROJECT_FEE : amount = 0;
         } 
         else if(
-            status == IMarketplace.Status.Approved || 
-            status == IMarketplace.Status.Resolved_DelinquentPayment ||
-            status == IMarketplace.Status.Resolved_ArbitrationDismissed
+            status == Status.Approved || 
+            status == Status.Resolved_DelinquentPayment ||
+            status == Status.Resolved_ArbitrationDismissed
         ) {
             if(_user == PROVIDER) {
                 commissionFee = PROJECT_FEE/100;
                 amount = (PROJECT_FEE - commissionFee) + PROVIDER_STAKE;
             }
         } 
-        else if(status == IMarketplace.Status.Resolved_ChangeOrder) {
-            IMarketplace.ChangeOrder memory changeOrder = marketplace.getChangeOrder(PROJECT_ID);
+        else if(status == Status.Resolved_ChangeOrder) {
+            ChangeOrder memory changeOrder = marketplace.getActiveChangeOrder(PROJECT_ID);
             if(_user == BUYER) {
                 amount = (PROJECT_FEE - changeOrder.adjustedProjectFee) + changeOrder.providerStakeForfeit;
             } else if(_user == PROVIDER) {
@@ -143,9 +145,9 @@ contract Escrow {
                 amount = (changeOrder.adjustedProjectFee - commissionFee) + (PROVIDER_STAKE - changeOrder.providerStakeForfeit);
             }
         } 
-        else if(status == IMarketplace.Status.Resolved_CourtOrder) {
+        else if(status == Status.Resolved_CourtOrder) {
             uint256 petitionId = IMarketplace(MARKETPLACE).getArbitrationPetitionId(PROJECT_ID);
-            ICourt.Petition memory petition = ICourt(COURT).getPetition(petitionId);
+            Petition memory petition = ICourt(COURT).getPetition(petitionId);
             if(petition.petitionGranted) {
                 if(_user == BUYER) {
                     amount = (PROJECT_FEE - petition.adjustedProjectFee) + petition.providerStakeForfeit;
