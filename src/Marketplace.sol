@@ -709,10 +709,6 @@ contract Marketplace is DataStructuresLibrary {
         return commissionFees[_paymentToken];
     }
 
-    // function getChangeOrder(uint256 _projectId) public view returns (ChangeOrder memory) {
-    //     return changeOrders[_projectId];
-    // }
-
     function getChangeOrders(uint256 _projectId) public view returns (ChangeOrder[] memory) {
         return changeOrders[_projectId];
     }
@@ -723,9 +719,6 @@ contract Marketplace is DataStructuresLibrary {
     }
 
     function activeChangeOrder(uint256 _projectId) public view returns (bool) {
-        // ChangeOrder memory c = getChangeOrder(_projectId);
-        // if(c.dateProposed == 0) return false;
-        // return true;
         ChangeOrder[] memory orders = getChangeOrders(_projectId);
         if(orders.length > 0 && orders[orders.length - 1].active) {
             return true;
