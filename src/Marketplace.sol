@@ -105,6 +105,7 @@ contract Marketplace is DataStructuresLibrary {
     error Marketplace__TransferFailed();
     error Marketplace__InsufficientAmount();
     error Marketplace__InsufficientApproval();
+    error Marketplace__NativeCurrencySent();
     // permissions
     error Marketplace__OnlyUser();
     error Marketplace__OnlyGovernor();
@@ -222,6 +223,7 @@ contract Marketplace is DataStructuresLibrary {
         if(_paymentToken != address(0)) {
             if(!isApprovedToken[_paymentToken]) revert Marketplace__UnapprovedToken();
             if(IERC20(_paymentToken).allowance(msg.sender, address(this)) < txFee + _projectFee) revert Marketplace__InsufficientApproval();
+            if(msg.value > 0) revert Marketplace__NativeCurrencySent();
             bool success = IERC20(_paymentToken).transferFrom(msg.sender, address(this), txFee);
             if(!success) revert Marketplace__TransferFailed();
             success = IERC20(_paymentToken).transferFrom(msg.sender, p.escrow, _projectFee);
@@ -272,6 +274,7 @@ contract Marketplace is DataStructuresLibrary {
                 if(IERC20(p.paymentToken).allowance(msg.sender, address(this)) < p.providerStake) {
                     revert Marketplace__InsufficientApproval();
                 }
+                if(msg.value > 0) revert Marketplace__NativeCurrencySent();
                 bool success = IERC20(p.paymentToken).transferFrom(msg.sender, p.escrow, p.providerStake);
                 if(!success) revert Marketplace__TransferFailed();
             } else {
@@ -314,7 +317,7 @@ contract Marketplace is DataStructuresLibrary {
     }
 
     /**
-     * @notice Provider Project is complete, reviewPeriod is initiated in which Buyer reviews deliverables
+     * @notice Provider claims Project is complete, reviewPeriod is initiated
      */
     function completeProject(uint256 _projectId) external {
         Project storage p = projects[_projectId];

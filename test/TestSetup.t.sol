@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 
 import "./USDTMock.sol";
 import "chainlink/VRFCoordinatorV2Mock.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "../src/Governor.sol";
 import "../src/Whitelist.sol";
@@ -73,6 +74,31 @@ contract TestSetup is Test, DataStructuresLibrary {
     address[] public admins = [admin1, admin2, admin3, admin4];
     address[] public users = [alice,bob,carlos,david,erin,frank,grace,heidi,ivan,judy,kim,laura,mike,niaj,olivia,patricia,quentin,russel,sean,tabitha,ulrich,vincent,winona,xerxes,yanni,zorro];
 
+    // test project params
+    address buyer = alice;
+    address provider = bob;
+    uint256 projectFee = 1000 ether;
+    uint256 providerStake = 50 ether;
+    uint256 dueDate;
+    uint256 reviewPeriodLength = 3 days;
+    string detailsURI = "ipfs://someDetails/";
+    
+    // test project IDs
+    uint256 id_created_MATIC;
+    uint256 id_created_ERC20;
+    uint256 id_active_MATIC;
+    uint256 id_active_ERC20;
+    uint256 id_complete_MATIC;
+    uint256 id_complete_ERC20;
+
+    // test change order
+    uint256 changeOrderAdjustedProjectFee = 750 ether;
+    string changeOrderDetailsURI = "ipfs://changeOrderUri";
+
+    // test arbitration
+    string[] evidence1 = ["someEvidenceURI", "someOtherEvidenceURI"];
+    string[] evidence2 = ["someEvidenceURI2", "someOtherEvidenceURI2"];
+
     function _setUp() internal {
         vm.startPrank(admin1);
         // deploy contracts
@@ -117,6 +143,10 @@ contract TestSetup is Test, DataStructuresLibrary {
 
         // label addresses
         _labelTestAddresses();
+
+        // initialize test project variables
+        dueDate = block.timestamp + 30 days;
+
         
     }
 
@@ -153,6 +183,83 @@ contract TestSetup is Test, DataStructuresLibrary {
                 governor.signTransaction(_txIndex);
             }
         } 
+    }
+
+    function _createProject(
+        address _buyer,
+        address _provider,
+        address _paymentToken,
+        uint256 _projectFee,
+        uint256 _providerStake,
+        uint256 _dueDate,
+        uint256 _reviewPeriodLength,
+        string memory _detailsURI
+    ) 
+        internal
+        returns (uint256)
+    {
+        uint256 txFee = marketplace.calculateNebulaiTxFee(_projectFee);
+        if(_paymentToken != address(0)) {
+            // if not native, approve amount
+            vm.prank(_buyer);
+            IERC20(_paymentToken).approve(address(marketplace), _projectFee + txFee);
+        }
+        vm.prank(_buyer);
+        uint256 id = marketplace.createProject{value: (_paymentToken == address(0) ? _projectFee + txFee : 0)}(
+            _provider,
+            _paymentToken,
+            _projectFee,
+            _providerStake,
+            _dueDate,
+            _reviewPeriodLength,
+            _detailsURI
+        );
+        return id;
+    }
+
+    function _projectTemplate(address _paymentToken) public returns (uint256 id) {
+        id = _createProject(
+            buyer, provider, _paymentToken, projectFee, providerStake, dueDate, reviewPeriodLength, detailsURI
+        );
+    }
+
+    function _initializeTestProjects() public {
+        id_created_MATIC = _projectTemplate(address(0));
+        id_created_ERC20 = _projectTemplate(address(usdt));
+
+        id_active_MATIC = _activateProject(_projectTemplate(address(0)));
+        id_active_ERC20 = _activateProject(_projectTemplate(address(usdt)));
+        
+        id_complete_MATIC = _completeProject(_projectTemplate(address(0)));
+        id_complete_ERC20 = _completeProject(_projectTemplate(address(usdt)));
+    }
+
+    function _getBalance(address _addr, address _paymentToken) public view returns (uint256) {
+        if(_paymentToken == address(0)) return _addr.balance;
+        else return IERC20(_paymentToken).balanceOf(_addr);
+    } 
+
+    function _activateProject(uint256 _projectId) public returns (uint256) {
+        Project memory project = marketplace.getProject(_projectId);
+        uint256 value;
+        if(project.paymentToken != address(0)) {
+            vm.prank(project.provider);
+            IERC20(project.paymentToken).approve(address(marketplace), project.providerStake);
+        } else {
+            value = project.providerStake;
+        }
+        
+        vm.prank(project.provider);
+        marketplace.activateProject{value: value}(_projectId);
+        return project.projectId;
+    }
+
+    function _completeProject(uint256 _projectId) public returns (uint256) {
+        Project memory project = marketplace.getProject(_projectId);
+        _activateProject(_projectId);
+        vm.prank(project.provider);
+        marketplace.completeProject(_projectId);
+        return project.projectId;
     }
 
     function _labelTestAddresses() public {

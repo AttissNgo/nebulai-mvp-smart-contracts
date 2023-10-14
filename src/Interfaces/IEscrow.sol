@@ -9,6 +9,7 @@ interface IEscrow {
     function PAYMENT_TOKEN() external view returns (address);
     function PROJECT_FEE() external view returns (uint256);
     function PROVIDER_STAKE() external view returns (uint256);    
+    function COURT() external view returns (address);
 
     function providerHasStaked() external returns (bool);
     function verifyProviderStake() external returns (bool); 
