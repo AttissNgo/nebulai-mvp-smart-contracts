@@ -20,9 +20,9 @@ contract Escrow is DataStructuresLibrary {
     bool public providerHasStaked = false;
     bool private buyerHasWithdrawn = false;
     bool private providerHasWithdrawn = false;
-    uint256 public commissionFee;
+    // uint256 public commissionFee;
 
-    event EscrowReleased(address recipient, uint256 amount);
+    event EscrowReleased(address recipient, uint256 amountReleased, uint256 commissionFeePaid);
 
     error Escrow__OnlyMarketplace();
     error Escrow__InsufficientAmount();
@@ -79,9 +79,12 @@ contract Escrow is DataStructuresLibrary {
         if(msg.sender != BUYER && msg.sender !=PROVIDER) revert Escrow__OnlyBuyerOrProvider();
         if(!isReleasable()) revert Escrow__NotReleasable();
         if(hasWithdrawn(msg.sender)) revert Escrow__UserHasAlreadyWithdrawn();
-        uint256 amount = amountDue(msg.sender);
+
+        (uint256 amount, uint256 commissionFee) = amountDue(msg.sender);
         if(amount == 0) revert Escrow__NoPaymentDue();
+
         (msg.sender == BUYER) ? buyerHasWithdrawn = true : providerHasWithdrawn = true;
+
         if(PAYMENT_TOKEN == address(0)) {
             (bool success,) = msg.sender.call{value: amount}("");
             if(!success) revert Escrow__TransferFailed();
@@ -99,7 +102,7 @@ contract Escrow is DataStructuresLibrary {
             }
             IMarketplace(MARKETPLACE).receiveCommission(PROJECT_ID, commissionFee);
         }
-        emit EscrowReleased(msg.sender, amount);
+        emit EscrowReleased(msg.sender, amount, commissionFee);
     }
 
     function isReleasable() public view returns (bool) {
@@ -117,10 +120,10 @@ contract Escrow is DataStructuresLibrary {
 
     /**
      * @notice calculates amount Escrow will release to _user
-     * @dev sets commissionFee, which will be transferred to Marketplace when provider withdraws
      */
-    function amountDue(address _user) public returns (uint256) {
+    function amountDue(address _user) public view returns (uint256, uint256) { 
         uint256 amount;
+        uint256 commissionFee;
         IMarketplace marketplace = IMarketplace(MARKETPLACE);
         Status status = marketplace.getProjectStatus(PROJECT_ID);
         if(status == Status.Cancelled) {
@@ -165,7 +168,7 @@ contract Escrow is DataStructuresLibrary {
             }
 
         }
-        return amount;
+        return (amount, commissionFee);
     }
 
     function hasWithdrawn(address _user) public view returns (bool) {

@@ -13,6 +13,8 @@ import "forge-std/console.sol";
 
 contract EscrowTest is Test, TestSetup {
 
+    event EscrowReleased(address recipient, uint256 amountReleased, uint256 commissionFeePaid);
+
     function setUp() public {
         _setUp();
         _whitelistUsers();
@@ -20,23 +22,137 @@ contract EscrowTest is Test, TestSetup {
         _initializeTestProjects();
     }
 
+    //////////////////////
+    ///   DEPLOYMENT   ///
+    //////////////////////
+
     function test_escrow_deployement() public {
-        Project memory project = marketplace.getProject(id_created_ERC20);
-        IEscrow escrow = IEscrow(project.escrow);
-        // variables initialized correctly
-        assertEq(address(marketplace), escrow.MARKETPLACE());
-        assertEq(project.projectId, escrow.PROJECT_ID());
-        assertEq(project.buyer, escrow.BUYER());
-        assertEq(project.provider, escrow.PROVIDER());
-        assertEq(project.paymentToken, escrow.PAYMENT_TOKEN());
-        assertEq(project.projectFee, escrow.PROJECT_FEE());
-        assertEq(project.providerStake, escrow.PROVIDER_STAKE());
-        assertEq(address(court), escrow.COURT());
-        // correct balance
-        assertEq(escrow.providerHasStaked(), false);
-        assertEq(address(escrow).balance, escrow.PROJECT_FEE());
+        uint256[2] memory createdProjects = [id_created_MATIC, id_created_ERC20];
+        for(uint i = 0; i < createdProjects.length; ++i) {
+            Project memory project = marketplace.getProject(createdProjects[i]);
+            IEscrow escrow = IEscrow(project.escrow);
+            // variables initialized correctly
+            assertEq(address(marketplace), escrow.MARKETPLACE());
+            assertEq(project.projectId, escrow.PROJECT_ID());
+            assertEq(project.buyer, escrow.BUYER());
+            assertEq(project.provider, escrow.PROVIDER());
+            assertEq(project.paymentToken, escrow.PAYMENT_TOKEN());
+            assertEq(project.projectFee, escrow.PROJECT_FEE());
+            assertEq(project.providerStake, escrow.PROVIDER_STAKE());
+            assertEq(address(court), escrow.COURT());
+            // correct balance
+            assertEq(escrow.providerHasStaked(), false);
+            assertEq(_getBalance(address(escrow), project.paymentToken), escrow.PROJECT_FEE());
+        }
     }
 
+    function test_provider_stake_recorded() public {
+        Project memory project = marketplace.getProject(id_created_MATIC);
+        IEscrow escrow = IEscrow(project.escrow);
+        assertEq(escrow.providerHasStaked(), false);
+        _activatedProject(project.projectId);
+        assertEq(escrow.providerHasStaked(), true);
+    }
+
+    ////////////////////
+    ///   WITHDRAW   ///
+    ////////////////////
+
+    function test_isReleasable() public {
+        // blocks projects with wrong status
+        Project memory project = marketplace.getProject(id_created_ERC20);
+        assertFalse(IEscrow(project.escrow).isReleasable());
+        project = marketplace.getProject(id_active_ERC20);
+        assertFalse(IEscrow(project.escrow).isReleasable());
+        project = marketplace.getProject(id_challenged_MATIC);
+        assertFalse(IEscrow(project.escrow).isReleasable());
+    }
+
+    function test_withdraw_approved() public {
+        uint256[2] memory approvedProjects = [id_approved_ERC20, id_approved_MATIC];
+        for(uint i; i < approvedProjects.length; ++i) {
+            Project memory project = marketplace.getProject(approvedProjects[i]);
+            IEscrow escrow = IEscrow(project.escrow);
+            (,, uint providerBefore, uint marketplaceBefore) = _snapshotBeforeBalances(project.projectId);
+
+            // provider withdraw
+            (uint256 amountDue, uint256 commission) = escrow.amountDue(project.provider);
+            vm.prank(project.provider);
+            vm.expectEmit(false, false, false, true);
+            emit EscrowReleased(project.provider, amountDue, commission);
+            escrow.withdraw();
+            assertEq(_getBalance(project.provider, project.paymentToken), providerBefore + amountDue);
+            assertEq(_getBalance(address(marketplace), project.paymentToken), marketplaceBefore + commission);
+            assertEq(_getBalance(address(escrow), project.paymentToken), 0);
+
+            // buyer withdraw - should revert due to zero amount
+            vm.expectRevert(Escrow.Escrow__NoPaymentDue.selector);
+            vm.prank(project.buyer);
+            escrow.withdraw();
+        }
+    }
+
+    function test_withdraw_changeOrder() public {
+        uint256[2] memory approvedOrderProjects = [id_approved_change_order_ERC20, id_approved_change_order_MATIC];
+        for(uint i; i < approvedOrderProjects.length; ++i) {
+            Project memory project = marketplace.getProject(approvedOrderProjects[i]);
+            IEscrow escrow = IEscrow(project.escrow);
+            (uint escrowBefore, uint buyerBefore, uint providerBefore, uint marketplaceBefore) = _snapshotBeforeBalances(project.projectId);
+            
+            // provider withdraw
+            (uint256 amountDue, uint256 commission) = escrow.amountDue(project.provider);
+            vm.expectEmit(false, false, false, true);
+            emit EscrowReleased(project.provider, amountDue, commission);
+            vm.prank(project.provider);
+            escrow.withdraw();
+            assertEq(_getBalance(project.provider, project.paymentToken), providerBefore + amountDue);
+            assertEq(_getBalance(address(marketplace), project.paymentToken), marketplaceBefore + commission);
+            assertEq(_getBalance(address(escrow), project.paymentToken), escrowBefore - amountDue - commission);
+
+            // buyer withdraw
+            (amountDue,) = escrow.amountDue(project.buyer);
+            vm.expectEmit(false, false, false, true);
+            emit EscrowReleased(project.buyer, amountDue, 0);
+            vm.prank(project.buyer);
+            escrow.withdraw();
+            assertEq(_getBalance(project.buyer, project.paymentToken), buyerBefore + amountDue);
+            assertEq(_getBalance(address(escrow), project.paymentToken), 0);
+        }
+    }
+
+    function test_withdraw_revert() public {
+        // not buyer or provider
+        Project memory project = marketplace.getProject(id_approved_MATIC);
+        vm.expectRevert(Escrow.Escrow__OnlyBuyerOrProvider.selector);
+        vm.prank(zorro);
+        IEscrow(project.escrow).withdraw();
+        // not releasable - wrong status
+        project = marketplace.getProject(id_active_MATIC);
+        vm.expectRevert(Escrow.Escrow__NotReleasable.selector);
+        vm.prank(project.provider);
+        IEscrow(project.escrow).withdraw();
+        // already withdrawn
+        project = marketplace.getProject(id_approved_MATIC);
+        vm.prank(project.provider);
+        IEscrow(project.escrow).withdraw();
+        assertTrue(IEscrow(project.escrow).hasWithdrawn(project.provider));
+        vm.expectRevert(Escrow.Escrow__UserHasAlreadyWithdrawn.selector);
+        vm.prank(project.provider);
+        IEscrow(project.escrow).withdraw();
+    }
+
+    ////////////////
+    ///   UTIL   ///
+    ////////////////
+
+    function _snapshotBeforeBalances(uint256 _projectId) public view returns (uint256, uint256, uint256, uint256) {
+        Project memory p = marketplace.getProject(_projectId);
+        uint256 escrowBal = _getBalance(p.escrow, p.paymentToken);
+        uint256 buyerBal = _getBalance(p.buyer, p.paymentToken);
+        uint256 providerBal = _getBalance(p.provider, p.paymentToken);
+        uint256 marketplaceBal = _getBalance(IEscrow(p.escrow).MARKETPLACE(), p.paymentToken);
+        return (escrowBal, buyerBal, providerBal, marketplaceBal);
+    }
 }
 
 // contract EscrowTest is Test, TestSetup {

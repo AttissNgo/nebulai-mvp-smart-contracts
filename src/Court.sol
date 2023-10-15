@@ -82,7 +82,7 @@ contract Court is VRFConsumerBaseV2, DataStructuresLibrary {
         address[] confirmedJurors;
     }
 
-    Counters.Counter private petitionIds;
+    Counters.Counter public petitionIds;
     mapping(uint256 => Petition) private petitions; // petitionId => Petition
     mapping(uint256 => Jury) private juries; // petitionId => Jury
     mapping(address => mapping(uint256 => uint256)) private jurorStakes; // juror address => petitionId => stake

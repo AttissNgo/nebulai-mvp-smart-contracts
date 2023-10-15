@@ -534,7 +534,7 @@ contract Marketplace is DataStructuresLibrary {
     /**
      * @notice creates a new Change Order
      * @dev sets approval as true for user who proposes Change Order
-     * @dev sets 'active' field on most recent Change Order to false, ensuring that only one active Change Order per Proejct
+     * @dev sets 'active' field on most recent Change Order to false, ensuring only one active Change Order per Proejct
      */
     function _proposeChangeOrder(
         uint256 _projectId,
@@ -545,12 +545,6 @@ contract Marketplace is DataStructuresLibrary {
         private 
     {
         Project memory p = getProject(_projectId);
-        if(msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
-        if(
-            p.status != Status.Discontinued && 
-            p.status != Status.Challenged && 
-            p.status != Status.Disputed
-        ) revert Marketplace__ChangeOrderCannotBeProposed();
         if(_adjustedProjectFee > p.projectFee) revert Marketplace__AdjustedFeeExceedsProjectFee();
         if(_providerStakeForfeit > p.providerStake) revert Marketplace__ForfeitExceedsProviderStake();
         changeOrderIds.increment();
@@ -569,7 +563,7 @@ contract Marketplace is DataStructuresLibrary {
         ChangeOrder[] storage orders = changeOrders[_projectId];
         if(orders.length > 0) {
             orders[orders.length - 1].active = false;
-        }
+        } // find cases where we actually need this operation...
         orders.push(newOrder);
         changeOrders[_projectId] = orders;
         emit ChangeOrderProposed(_projectId);
@@ -585,10 +579,8 @@ contract Marketplace is DataStructuresLibrary {
         if(
             p.status != Status.Discontinued &&
             p.status != Status.Challenged && 
-            p.status != Status.Disputed 
-        ) revert Marketplace__ChangeOrderNotValid();
-        // ChangeOrder storage c = changeOrders[_projectId];
-        // ChangeOrder[] memory orders = getChangeOrders(_projectId);
+            p.status != Status.Disputed
+        ) revert Marketplace__ChangeOrderNotValid(); // is this condition even possible???
         ChangeOrder storage c = changeOrders[_projectId][changeOrders[_projectId].length -1];
         if(
             msg.sender == p.buyer && c.buyerApproval ||

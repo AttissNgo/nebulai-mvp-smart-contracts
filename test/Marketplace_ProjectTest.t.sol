@@ -18,8 +18,6 @@ contract MarketplaceProjectTest is Test, TestSetup {
     event ProjectChallenged(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectDisputed(uint256 indexed projectId, address indexed buyer, address indexed provider, uint256 petitionId);
     event DelinquentPayment(uint256 indexed projectId, address indexed buyer, address indexed provider);
-    event ChangeOrderApproved(uint256 indexed projectId, address indexed buyer, address indexed provider);
-    event ChangeOrderRetracted(uint256 indexed projectId, address indexed retractedBy);
     event ProjectAppealed(uint256 indexed projectId, uint256 indexed petitionId, address appealedBy);
     event ResolvedByCourtOrder(uint256 indexed projectId, uint256 indexed petitionId);
     event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed petitionId);
@@ -381,6 +379,7 @@ contract MarketplaceProjectTest is Test, TestSetup {
     function test_discontinueProject() public {
         // provider discontinues, proposes 50% payment for partial work
         Project memory project = marketplace.getProject(id_active_ERC20);
+        assertEq(project.changeOrderPeriodInitiated, 0);
         vm.expectEmit(true, true, true, false);
         emit ProjectDiscontinued(project.projectId, project.buyer, project.provider);
         vm.prank(project.provider);
@@ -392,6 +391,7 @@ contract MarketplaceProjectTest is Test, TestSetup {
         );
         project = marketplace.getProject(id_active_ERC20);
         assertEq(uint(project.status), uint(Status.Discontinued));
+        assertEq(project.changeOrderPeriodInitiated, block.timestamp);
     }
 
     function test_discontinueProject_revert() public {
@@ -412,6 +412,16 @@ contract MarketplaceProjectTest is Test, TestSetup {
         marketplace.discontinueProject(
             project.projectId,
             project.projectFee/2,
+            0,
+            "ipfs://someChangeOrder/"
+        );
+        // invalid change order parameters
+        project = marketplace.getProject(id_active_MATIC);
+        vm.expectRevert(Marketplace.Marketplace__AdjustedFeeExceedsProjectFee.selector);
+        vm.prank(project.provider);
+        marketplace.discontinueProject(
+            project.projectId,
+            project.projectFee + 1,
             0,
             "ipfs://someChangeOrder/"
         );
@@ -444,6 +454,155 @@ contract MarketplaceProjectTest is Test, TestSetup {
         vm.expectRevert(Marketplace.Marketplace__ProjectMustBeActive.selector);
         vm.prank(project.provider);
         marketplace.completeProject(project.projectId);
+    }
+
+    ///////////////////////////
+    ///   APPROVE PROJECT   ///
+    ///////////////////////////
+
+    function test_approveProject() public {
+        Project memory project = marketplace.getProject(id_complete_ERC20);
+        vm.expectEmit(true, true, true, false);
+        emit ProjectApproved(project.projectId, project.buyer, project.provider);
+        vm.prank(project.buyer);
+        marketplace.approveProject(project.projectId);
+        project = marketplace.getProject(id_complete_ERC20);
+        assertEq(uint(project.status), uint(Status.Approved));
+    }
+
+    function test_approveProject_revert() public {
+        // not buyer
+        Project memory project = marketplace.getProject(id_complete_ERC20);
+        vm.expectRevert(Marketplace.Marketplace__OnlyBuyer.selector);
+        vm.prank(project.provider);
+        marketplace.approveProject(project.projectId);
+        // not complete
+        project = marketplace.getProject(id_active_ERC20);
+        vm.expectRevert(Marketplace.Marketplace__ProjectNotCompleted.selector);
+        vm.prank(project.buyer);
+        marketplace.approveProject(project.projectId);
+    }
+
+    /////////////////////////////
+    ///   CHALLENGE PROJECT   ///
+    /////////////////////////////
+
+    function test_challengeProject() public {
+        Project memory project = marketplace.getProject(id_complete_MATIC);
+        assertEq(project.changeOrderPeriodInitiated, 0);
+        vm.prank(project.buyer);
+        marketplace.challengeProject(
+            project.projectId,
+            project.projectFee - (project.projectFee/4),
+            0,
+            "ipfs://someChangeOrder/"
+        );
+        project = marketplace.getProject(project.projectId);
+        assertEq(uint(project.status), uint(Status.Challenged));
+        assertEq(project.changeOrderPeriodInitiated, block.timestamp);
+    }
+
+    function test_challengeProject_revert() public {
+        // not buyer 
+        Project memory project = marketplace.getProject(id_complete_MATIC);
+        vm.expectRevert(Marketplace.Marketplace__OnlyBuyer.selector);
+        vm.prank(project.provider);
+        marketplace.challengeProject(
+            project.projectId,
+            project.projectFee - (project.projectFee/4),
+            0,
+            "ipfs://someChangeOrder/"
+        );
+        // not active or completed
+        project = marketplace.getProject(id_created_MATIC);
+        vm.expectRevert(Marketplace.Marketplace__ProjectCannotBeChallenged.selector);
+        vm.prank(project.buyer);
+        marketplace.challengeProject(
+            project.projectId,
+            project.projectFee - (project.projectFee/4),
+            0,
+            "ipfs://someChangeOrder/"
+        );
+        // active but not overdue
+        project = marketplace.getProject(id_active_ERC20);
+        assertTrue(block.timestamp < project.dueDate);
+        vm.expectRevert(Marketplace.Marketplace__ProjectIsNotOverdue.selector);
+        vm.prank(project.buyer);
+        marketplace.challengeProject(
+            project.projectId,
+            project.projectFee - (project.projectFee/4),
+            0,
+            "ipfs://someChangeOrder/"
+        );
+        // completed but after review period
+        project = marketplace.getProject(id_complete_ERC20);
+        vm.warp(block.timestamp + project.reviewPeriodLength + 1);
+        vm.expectRevert(Marketplace.Marketplace__ProjectReviewPeriodEnded.selector);
+        vm.prank(project.buyer);
+        marketplace.challengeProject(
+            project.projectId,
+            project.projectFee - (project.projectFee/4),
+            0,
+            "ipfs://someChangeOrder/"
+        );
+    }
+
+    ///////////////////////////
+    ///   DISPUTE PROJECY   ///
+    ///////////////////////////
+
+    function test_disputeProject() public {
+        Project memory project = marketplace.getProject(id_challenged_ERC20);
+        vm.warp(block.timestamp + marketplace.CHANGE_ORDER_PERIOD() + 1);
+        assertEq(marketplace.activeChangeOrder(project.projectId), true);
+        assertEq(marketplace.getArbitrationPetitionId(project.projectId), 0);
+
+        vm.expectEmit(true, true, true, true);
+        emit ProjectDisputed(project.projectId, project.buyer, project.provider, court.petitionIds() + 1);
+        vm.prank(project.provider);
+        marketplace.disputeProject(
+            project.projectId,
+            project.projectFee - (project.projectFee/10),
+            0
+        );
+        
+        project = marketplace.getProject(project.projectId);
+        assertEq(uint(project.status), uint(Status.Disputed));
+        // no longer has active change order
+        assertEq(marketplace.activeChangeOrder(project.projectId), false);
+        // has petition Id
+        assertEq(marketplace.getArbitrationPetitionId(project.projectId), court.petitionIds());
+    }
+
+    function test_disputeProject_revert() public {
+        // not buyer or provider
+        Project memory project = marketplace.getProject(id_challenged_ERC20);
+        vm.expectRevert(Marketplace.Marketplace__OnlyBuyerOrProvider.selector);
+        vm.prank(zorro);
+        marketplace.disputeProject(project.projectId, project.projectFee/2, 0);
+        // not challenged or discontinued
+        project = marketplace.getProject(id_active_MATIC);
+        vm.expectRevert(Marketplace.Marketplace__ProjectCannotBeDisputed.selector);
+        vm.prank(project.buyer);
+        marketplace.disputeProject(project.projectId, project.projectFee/2, 0);
+        // change order period still active
+        project = marketplace.getProject(id_challenged_ERC20);
+        assertTrue(block.timestamp < project.changeOrderPeriodInitiated + marketplace.CHANGE_ORDER_PERIOD());
+        vm.expectRevert(Marketplace.Marketplace__ChangeOrderPeriodStillActive.selector);
+        vm.prank(project.buyer);
+        marketplace.disputeProject(project.projectId, project.projectFee/2, 0);
+        // adjusted project fee > project fee
+        project = marketplace.getProject(id_challenged_ERC20);
+        vm.warp(block.timestamp + marketplace.CHANGE_ORDER_PERIOD() + 1);
+        vm.expectRevert(Marketplace.Marketplace__AdjustedFeeExceedsProjectFee.selector);
+        vm.prank(project.buyer);
+        marketplace.disputeProject(project.projectId, project.projectFee + 1, 0);
+        // provider stake forfeit > provider stake
+        project = marketplace.getProject(id_challenged_ERC20);
+        vm.warp(block.timestamp + marketplace.CHANGE_ORDER_PERIOD() + 1);
+        vm.expectRevert(Marketplace.Marketplace__ForfeitExceedsProviderStake.selector);
+        vm.prank(project.buyer);
+        marketplace.disputeProject(project.projectId, project.projectFee/2, project.providerStake + 1);
     }
 
 }

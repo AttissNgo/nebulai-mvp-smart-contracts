@@ -90,10 +90,23 @@ contract TestSetup is Test, DataStructuresLibrary {
     uint256 id_active_ERC20;
     uint256 id_complete_MATIC;
     uint256 id_complete_ERC20;
+    uint256 id_approved_MATIC;
+    uint256 id_approved_ERC20;
+    uint256 id_challenged_MATIC;    
+    uint256 id_challenged_ERC20;   
+    uint256 id_approved_change_order_MATIC; 
+    uint256 id_approved_change_order_ERC20; 
+    // uint256 id_disputed_MATIC; // don't use in setup as it warps time
+    // uint256 id_disputed_ERC20;
 
     // test change order
     uint256 changeOrderAdjustedProjectFee = 750 ether;
+    uint256 changeOrderProviderStakeForfeit = 25 ether;
     string changeOrderDetailsURI = "ipfs://changeOrderUri";
+
+    // test settlement
+    uint256 settlementAdjustedProjectFee = 800 ether;
+    uint256 settlementProviderStakeForfeit = 0;
 
     // test arbitration
     string[] evidence1 = ["someEvidenceURI", "someOtherEvidenceURI"];
@@ -199,13 +212,16 @@ contract TestSetup is Test, DataStructuresLibrary {
         returns (uint256)
     {
         uint256 txFee = marketplace.calculateNebulaiTxFee(_projectFee);
+        uint256 value;
         if(_paymentToken != address(0)) {
             // if not native, approve amount
             vm.prank(_buyer);
             IERC20(_paymentToken).approve(address(marketplace), _projectFee + txFee);
+        } else {
+            value = _projectFee + txFee;
         }
         vm.prank(_buyer);
-        uint256 id = marketplace.createProject{value: (_paymentToken == address(0) ? _projectFee + txFee : 0)}(
+        uint256 id = marketplace.createProject{value: value}(
             _provider,
             _paymentToken,
             _projectFee,
@@ -227,11 +243,20 @@ contract TestSetup is Test, DataStructuresLibrary {
         id_created_MATIC = _projectTemplate(address(0));
         id_created_ERC20 = _projectTemplate(address(usdt));
 
-        id_active_MATIC = _activateProject(_projectTemplate(address(0)));
-        id_active_ERC20 = _activateProject(_projectTemplate(address(usdt)));
+        id_active_MATIC = _activatedProject(_projectTemplate(address(0)));
+        id_active_ERC20 = _activatedProject(_projectTemplate(address(usdt)));
         
-        id_complete_MATIC = _completeProject(_projectTemplate(address(0)));
-        id_complete_ERC20 = _completeProject(_projectTemplate(address(usdt)));
+        id_complete_MATIC = _completedProject(_projectTemplate(address(0)));
+        id_complete_ERC20 = _completedProject(_projectTemplate(address(usdt)));
+
+        id_approved_MATIC = _approvedProject(_projectTemplate(address(0)));
+        id_approved_ERC20 = _approvedProject(_projectTemplate(address(usdt)));
+
+        id_challenged_MATIC = _challengedProject(_projectTemplate(address(0)));
+        id_challenged_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
+
+        id_approved_change_order_MATIC = _project_with_approvedChangeOrder(_projectTemplate(address(0)));
+        id_approved_change_order_ERC20 = _project_with_approvedChangeOrder(_projectTemplate(address(usdt)));
     }
 
     function _getBalance(address _addr, address _paymentToken) public view returns (uint256) {
@@ -239,7 +264,7 @@ contract TestSetup is Test, DataStructuresLibrary {
         else return IERC20(_paymentToken).balanceOf(_addr);
     } 
 
-    function _activateProject(uint256 _projectId) public returns (uint256) {
+    function _activatedProject(uint256 _projectId) public returns (uint256) {
         Project memory project = marketplace.getProject(_projectId);
         uint256 value;
         if(project.paymentToken != address(0)) {
@@ -254,13 +279,61 @@ contract TestSetup is Test, DataStructuresLibrary {
         return project.projectId;
     }
 
-    function _completeProject(uint256 _projectId) public returns (uint256) {
+    function _completedProject(uint256 _projectId) public returns (uint256) {
         Project memory project = marketplace.getProject(_projectId);
-        _activateProject(_projectId);
+        _activatedProject(_projectId);
         vm.prank(project.provider);
         marketplace.completeProject(_projectId);
         return project.projectId;
     }
+
+    function _approvedProject(uint256 _projectId) public returns (uint256) {
+        Project memory project = marketplace.getProject(_projectId);
+        _completedProject(project.projectId);
+        vm.prank(project.buyer);
+        marketplace.approveProject(project.projectId);
+        return project.projectId;
+    }   
+
+    function _challengedProject(uint256 _projectId) public returns (uint256) {
+        Project memory project = marketplace.getProject(_projectId);
+        _completedProject(project.projectId);
+        vm.prank(project.buyer);
+        marketplace.challengeProject(
+            project.projectId,
+            changeOrderAdjustedProjectFee,
+            changeOrderProviderStakeForfeit,
+            changeOrderDetailsURI
+        );
+        return project.projectId;
+    }
+    
+    function _project_with_approvedChangeOrder(uint256 _projectId) public returns (uint256) {
+        Project memory project = marketplace.getProject(_projectId);
+        _challengedProject(project.projectId);
+        ChangeOrder memory order = marketplace.getActiveChangeOrder(project.projectId);
+        if(order.buyerApproval) {
+            vm.prank(project.provider);
+        } else {
+            vm.prank(project.buyer);
+        }
+        marketplace.approveChangeOrder(project.projectId);
+        return project.projectId;
+    }
+
+    // DOES NOT INITIALIZE PROJECT FROM CREATION
+    function _disputeProject(uint256 _projectId, uint256 _adjustedFee, uint256 _stakeForfeit) public {
+        Project memory project = marketplace.getProject(_projectId);
+        require(uint(project.status) == uint(Status.Challenged) || uint(project.status )== uint(Status.Discontinued), "wrong phase");
+        vm.warp(block.timestamp + marketplace.CHANGE_ORDER_PERIOD() + 1);
+        vm.prank(project.buyer);
+        marketplace.disputeProject(
+            project.projectId,
+            _adjustedFee,
+            _stakeForfeit
+        );
+    }
+
 
     function _labelTestAddresses() public {
         vm.label(address(usdt), "USDT");

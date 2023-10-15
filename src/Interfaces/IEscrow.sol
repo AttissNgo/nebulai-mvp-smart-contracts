@@ -15,5 +15,7 @@ interface IEscrow {
     function verifyProviderStake() external returns (bool); 
     function withdraw() external;
     function hasWithdrawn(address _user) external view returns (bool);
+    function isReleasable() external view returns (bool);
+    function amountDue(address _user) external view returns (uint256, uint256);
 }
 
