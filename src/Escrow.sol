@@ -135,7 +135,7 @@ contract Escrow is DataStructuresLibrary {
             status == Status.Resolved_ArbitrationDismissed
         ) {
             if(_user == PROVIDER) {
-                commissionFee = PROJECT_FEE/100;
+                commissionFee = calculateCommissionFee(PROJECT_FEE);
                 amount = (PROJECT_FEE - commissionFee) + PROVIDER_STAKE;
             }
         } 
@@ -144,7 +144,7 @@ contract Escrow is DataStructuresLibrary {
             if(_user == BUYER) {
                 amount = (PROJECT_FEE - changeOrder.adjustedProjectFee) + changeOrder.providerStakeForfeit;
             } else if(_user == PROVIDER) {
-                commissionFee = changeOrder.adjustedProjectFee/100;
+                commissionFee = calculateCommissionFee(changeOrder.adjustedProjectFee);
                 amount = (changeOrder.adjustedProjectFee - commissionFee) + (PROVIDER_STAKE - changeOrder.providerStakeForfeit);
             }
         } 
@@ -156,19 +156,28 @@ contract Escrow is DataStructuresLibrary {
                     amount = (PROJECT_FEE - petition.adjustedProjectFee) + petition.providerStakeForfeit;
                 } else if(_user == PROVIDER) {
                     if((petition.adjustedProjectFee - petition.providerStakeForfeit) > 0) {
-                         commissionFee = petition.adjustedProjectFee/100;
+                         commissionFee = calculateCommissionFee(petition.adjustedProjectFee);
                     }
                     amount = (petition.adjustedProjectFee - commissionFee) + (PROVIDER_STAKE - petition.providerStakeForfeit);
                 }
             } else { // petition NOT granted
                 if(_user == PROVIDER) {
-                    commissionFee = PROJECT_FEE/100;
+                    commissionFee = calculateCommissionFee(PROJECT_FEE);
                     amount = (PROJECT_FEE - commissionFee) + PROVIDER_STAKE;
                 }
             }
 
         }
         return (amount, commissionFee);
+    }
+
+    /**
+     * 
+     * @dev if _totalPaid is >= 100, returns 1% of _totalPaid, else returns 0 
+     */
+    function calculateCommissionFee(uint256 _totalPaid) private pure returns (uint256) {
+        if(_totalPaid < 100) return 0;
+        return _totalPaid/100;
     }
 
     function hasWithdrawn(address _user) public view returns (bool) {

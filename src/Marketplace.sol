@@ -502,7 +502,7 @@ contract Marketplace is DataStructuresLibrary {
 
     /**
      * @notice creates a new Change Order during arbitration
-     * @notice can only be created before both parties have paid arbitration fee in Court contract
+     * @notice can only be created during Discovery phase of court petition
      * @param _settlementDetailsURI details of Change Order on distributed file system
      */
     function proposeSettlement( 

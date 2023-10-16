@@ -133,8 +133,39 @@ contract MarketplaceChangeOrderTest is Test, TestSetup {
         assertEq(order.detailsURI, "ipfs://settlementDetails");
     }
 
-    // function test_proposeSettlement_revert() public {
-    //     // case not in discovery
-    // }
+    function test_proposeSettlement_revert() public {
+        Project memory project = marketplace.getProject(id_challenged_MATIC);
+        _disputeProject(project.projectId, changeOrderAdjustedProjectFee, changeOrderProviderStakeForfeit);
+        // not buyer or provider
+        vm.expectRevert(Marketplace.Marketplace__OnlyBuyerOrProvider.selector);
+        vm.prank(zorro);
+        marketplace.proposeSettlement(
+            project.projectId,
+            settlementAdjustedProjectFee,
+            settlementProviderStakeForfeit,
+            "ipfs://settlementDetails"
+        );
+        // project not disputed
+        project = marketplace.getProject(id_challenged_ERC20);
+        vm.expectRevert(Marketplace.Marketplace__ProjectIsNotDisputed.selector);
+        vm.prank(project.buyer);
+        marketplace.proposeSettlement(
+            project.projectId,
+            settlementAdjustedProjectFee,
+            settlementProviderStakeForfeit,
+            "ipfs://settlementDetails"
+        );
+        // case not in discovery
+        project = marketplace.getProject(id_challenged_MATIC);
+        _payArbitrationFeesAndDrawJurors(project.projectId);
+        vm.expectRevert(Marketplace.Marketplace__CourtCaseAlreadyInitiated.selector);
+        vm.prank(project.buyer);
+        marketplace.proposeSettlement(
+            project.projectId,
+            settlementAdjustedProjectFee,
+            settlementProviderStakeForfeit,
+            "ipfs://settlementDetails"
+        );
+    }
 
 }

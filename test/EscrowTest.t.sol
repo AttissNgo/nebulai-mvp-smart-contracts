@@ -77,6 +77,8 @@ contract EscrowTest is Test, TestSetup {
 
             // provider withdraw
             (uint256 amountDue, uint256 commission) = escrow.amountDue(project.provider);
+            assertEq(commission, project.projectFee/100);
+            assertEq(amountDue, project.projectFee + project.providerStake - commission);
             vm.prank(project.provider);
             vm.expectEmit(false, false, false, true);
             emit EscrowReleased(project.provider, amountDue, commission);
@@ -97,10 +99,13 @@ contract EscrowTest is Test, TestSetup {
         for(uint i; i < approvedOrderProjects.length; ++i) {
             Project memory project = marketplace.getProject(approvedOrderProjects[i]);
             IEscrow escrow = IEscrow(project.escrow);
+            ChangeOrder memory order = marketplace.getActiveChangeOrder(project.projectId);
             (uint escrowBefore, uint buyerBefore, uint providerBefore, uint marketplaceBefore) = _snapshotBeforeBalances(project.projectId);
             
             // provider withdraw
             (uint256 amountDue, uint256 commission) = escrow.amountDue(project.provider);
+            assertEq(commission, order.adjustedProjectFee/100);
+            assertEq(amountDue, order.adjustedProjectFee + project.providerStake - order.providerStakeForfeit - commission);
             vm.expectEmit(false, false, false, true);
             emit EscrowReleased(project.provider, amountDue, commission);
             vm.prank(project.provider);
@@ -111,6 +116,7 @@ contract EscrowTest is Test, TestSetup {
 
             // buyer withdraw
             (amountDue,) = escrow.amountDue(project.buyer);
+            assertEq(amountDue, project.projectFee - order.adjustedProjectFee + order.providerStakeForfeit);
             vm.expectEmit(false, false, false, true);
             emit EscrowReleased(project.buyer, amountDue, 0);
             vm.prank(project.buyer);
@@ -118,6 +124,64 @@ contract EscrowTest is Test, TestSetup {
             assertEq(_getBalance(project.buyer, project.paymentToken), buyerBefore + amountDue);
             assertEq(_getBalance(address(escrow), project.paymentToken), 0);
         }
+    }
+
+    function test_withdraw_deliquentPayment() public {
+        uint256[2] memory delinquentProjects = [id_complete_ERC20, id_complete_MATIC];
+        for(uint i; i < delinquentProjects.length; ++i) {
+            Project memory project = marketplace.getProject(delinquentProjects[i]);
+            vm.warp(block.timestamp + project.reviewPeriodLength + 1);
+            vm.prank(project.provider);
+            marketplace.delinquentPayment(project.projectId);
+            IEscrow escrow = IEscrow(project.escrow);
+            (uint escrowBefore,, uint providerBefore, uint marketplaceBefore) = _snapshotBeforeBalances(project.projectId);
+            
+            // provider withdraw
+            (uint256 amountDue, uint256 commission) = escrow.amountDue(project.provider);
+            assertEq(commission, project.projectFee/100);
+            assertEq(amountDue, project.projectFee + project.providerStake - commission);
+            vm.prank(project.provider);
+            escrow.withdraw();
+            assertEq(_getBalance(project.provider, project.paymentToken), providerBefore + amountDue);
+            assertEq(_getBalance(address(marketplace), project.paymentToken), marketplaceBefore + commission);
+            assertEq(_getBalance(address(escrow), project.paymentToken), escrowBefore - amountDue - commission);
+
+            // buyer withdraw - should revert due to zero amount
+            vm.expectRevert(Escrow.Escrow__NoPaymentDue.selector);
+            vm.prank(project.buyer);
+            escrow.withdraw();
+        }
+    }
+
+    function test_withdraw_full_refund_to_buyer_plus_forfeit() public {
+        Project memory project = marketplace.getProject(id_complete_ERC20);
+        IEscrow escrow = IEscrow(project.escrow);
+        vm.prank(buyer);
+        marketplace.challengeProject(
+            project.projectId,
+            0, // full refund
+            project.providerStake, // also captures provider stake
+            changeOrderDetailsURI
+        );
+        vm.prank(project.provider);
+        marketplace.approveChangeOrder(project.projectId);
+        (, uint buyerBefore,,) = _snapshotBeforeBalances(project.projectId);
+
+        // provider has nothing to withdraw
+        vm.expectRevert(Escrow.Escrow__NoPaymentDue.selector);
+        vm.prank(project.provider);
+        escrow.withdraw();
+
+        // buyer withdraw
+        (uint256 amountDue,) = escrow.amountDue(project.buyer);
+        assertEq(amountDue, project.projectFee + project.providerStake);
+        vm.expectEmit(false, false, false, true);
+        emit EscrowReleased(project.buyer, amountDue, 0);
+        vm.prank(project.buyer);
+        escrow.withdraw();
+        assertEq(_getBalance(project.buyer, project.paymentToken), buyerBefore + amountDue);
+        assertEq(_getBalance(address(escrow), project.paymentToken), 0);
+
     }
 
     function test_withdraw_revert() public {

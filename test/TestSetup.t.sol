@@ -96,8 +96,12 @@ contract TestSetup is Test, DataStructuresLibrary {
     uint256 id_challenged_ERC20;   
     uint256 id_approved_change_order_MATIC; 
     uint256 id_approved_change_order_ERC20; 
-    // uint256 id_disputed_MATIC; // don't use in setup as it warps time
-    // uint256 id_disputed_ERC20;
+
+    // test projects with arbitration
+    uint256 id_arbitration_discovery_MATIC;
+    uint256 id_arbitration_discovery_ERC20;
+    uint256 id_arbitration_jurySelection_MATIC;
+    uint256 id_arbitration_jurySelection_ERC20;
 
     // test change order
     uint256 changeOrderAdjustedProjectFee = 750 ether;
@@ -259,6 +263,33 @@ contract TestSetup is Test, DataStructuresLibrary {
         id_approved_change_order_ERC20 = _project_with_approvedChangeOrder(_projectTemplate(address(usdt)));
     }
 
+    function _initializeArbitrationProjects() public {
+        id_arbitration_discovery_MATIC = _challengedProject(_projectTemplate(address(0)));
+        id_arbitration_discovery_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
+        id_arbitration_jurySelection_MATIC = _challengedProject(_projectTemplate(address(0)));
+        id_arbitration_jurySelection_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
+        uint256[4] memory ids = [
+            id_arbitration_discovery_ERC20, 
+            id_arbitration_discovery_MATIC,
+            id_arbitration_jurySelection_MATIC,
+            id_arbitration_jurySelection_ERC20
+        ];
+        vm.warp(block.timestamp + marketplace.CHANGE_ORDER_PERIOD());
+        for(uint i; i < ids.length; ++i) {
+            Project memory project = marketplace.getProject(ids[i]);
+            vm.prank(project.buyer);
+            marketplace.disputeProject(
+                project.projectId,
+                changeOrderAdjustedProjectFee,
+                changeOrderProviderStakeForfeit
+            );
+        }
+        _payArbitrationFeesAndDrawJurors(id_arbitration_jurySelection_ERC20);
+        _payArbitrationFeesAndDrawJurors(id_arbitration_jurySelection_MATIC);
+       
+
+    }
+
     function _getBalance(address _addr, address _paymentToken) public view returns (uint256) {
         if(_paymentToken == address(0)) return _addr.balance;
         else return IERC20(_paymentToken).balanceOf(_addr);
@@ -332,6 +363,19 @@ contract TestSetup is Test, DataStructuresLibrary {
             _adjustedFee,
             _stakeForfeit
         );
+    }
+
+    function _payArbitrationFeesAndDrawJurors(uint256 _projectId) public {
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(_projectId));
+        require(!petition.feePaidDefendant && !petition.feePaidPlaintiff);
+        vm.prank(petition.plaintiff);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+        vm.recordLogs();
+        vm.prank(petition.defendant);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence2);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        uint256 requestId = uint(bytes32(entries[2].data));
+        vrf.fulfillRandomWords(requestId, address(court));
     }
 
 

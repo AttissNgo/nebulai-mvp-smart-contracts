@@ -548,7 +548,7 @@ contract MarketplaceProjectTest is Test, TestSetup {
     }
 
     ///////////////////////////
-    ///   DISPUTE PROJECY   ///
+    ///   DISPUTE PROJECT   ///
     ///////////////////////////
 
     function test_disputeProject() public {
@@ -603,6 +603,34 @@ contract MarketplaceProjectTest is Test, TestSetup {
         vm.expectRevert(Marketplace.Marketplace__ForfeitExceedsProviderStake.selector);
         vm.prank(project.buyer);
         marketplace.disputeProject(project.projectId, project.projectFee/2, project.providerStake + 1);
+    }
+
+    //////////////////////////////
+    ///   DELINQUENT PAYMENT   ///
+    //////////////////////////////
+
+    function test_delinquentPayment() public {
+        Project memory project = marketplace.getProject(id_complete_MATIC);
+        vm.warp(block.timestamp + project.reviewPeriodLength + 1);
+
+        vm.prank(project.provider);
+        marketplace.delinquentPayment(project.projectId);
+
+        project = marketplace.getProject(id_complete_MATIC);
+        assertEq(uint(project.status), uint(Status.Resolved_DelinquentPayment));
+    }
+
+    function test_delinquentPayment_revert() public {
+        Project memory project = marketplace.getProject(id_complete_MATIC);
+        // not delinquent
+        vm.expectRevert(Marketplace.Marketplace__PaymentIsNotDelinquent.selector);
+        vm.prank(project.provider);
+        marketplace.delinquentPayment(project.projectId);
+        // not provider
+        vm.warp(block.timestamp + project.reviewPeriodLength + 1);
+        vm.expectRevert(Marketplace.Marketplace__OnlyProvider.selector);
+        vm.prank(project.buyer);
+        marketplace.delinquentPayment(project.projectId);
     }
 
 }
