@@ -102,6 +102,10 @@ contract TestSetup is Test, DataStructuresLibrary {
     uint256 id_arbitration_discovery_ERC20;
     uint256 id_arbitration_jurySelection_MATIC;
     uint256 id_arbitration_jurySelection_ERC20;
+    uint256 id_arbitration_confirmedJury_MATIC;
+    uint256 id_arbitration_confirmedJury_ERC20;
+    uint256 id_arbitration_committedVotes_MATIC;
+    uint256 id_arbitration_committedVotes_ERC20;
 
     // test change order
     uint256 changeOrderAdjustedProjectFee = 750 ether;
@@ -264,15 +268,26 @@ contract TestSetup is Test, DataStructuresLibrary {
     }
 
     function _initializeArbitrationProjects() public {
+        vm.deal(buyer, 1000000 ether);
+        usdt.mint(buyer, 1000000 ether);
+
         id_arbitration_discovery_MATIC = _challengedProject(_projectTemplate(address(0)));
         id_arbitration_discovery_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
         id_arbitration_jurySelection_MATIC = _challengedProject(_projectTemplate(address(0)));
         id_arbitration_jurySelection_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
-        uint256[4] memory ids = [
+        id_arbitration_confirmedJury_MATIC = _challengedProject(_projectTemplate(address(0)));
+        id_arbitration_confirmedJury_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
+        id_arbitration_committedVotes_MATIC = _challengedProject(_projectTemplate(address(0)));
+        id_arbitration_committedVotes_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
+        uint256[8] memory ids = [
             id_arbitration_discovery_ERC20, 
             id_arbitration_discovery_MATIC,
             id_arbitration_jurySelection_MATIC,
-            id_arbitration_jurySelection_ERC20
+            id_arbitration_jurySelection_ERC20,
+            id_arbitration_confirmedJury_ERC20,
+            id_arbitration_confirmedJury_MATIC,
+            id_arbitration_committedVotes_MATIC,
+            id_arbitration_committedVotes_ERC20
         ];
         vm.warp(block.timestamp + marketplace.CHANGE_ORDER_PERIOD());
         for(uint i; i < ids.length; ++i) {
@@ -284,9 +299,21 @@ contract TestSetup is Test, DataStructuresLibrary {
                 changeOrderProviderStakeForfeit
             );
         }
+        
         _payArbitrationFeesAndDrawJurors(id_arbitration_jurySelection_ERC20);
         _payArbitrationFeesAndDrawJurors(id_arbitration_jurySelection_MATIC);
-       
+        _payArbitrationFeesAndDrawJurors(id_arbitration_confirmedJury_ERC20);
+        _payArbitrationFeesAndDrawJurors(id_arbitration_confirmedJury_MATIC);
+        _payArbitrationFeesAndDrawJurors(id_arbitration_committedVotes_ERC20);
+        _payArbitrationFeesAndDrawJurors(id_arbitration_committedVotes_MATIC);
+
+        _confirmJury(id_arbitration_confirmedJury_ERC20);
+        _confirmJury(id_arbitration_confirmedJury_MATIC);
+        _confirmJury(id_arbitration_committedVotes_ERC20);
+        _confirmJury(id_arbitration_committedVotes_MATIC);
+
+        _commitVotes(id_arbitration_committedVotes_ERC20);
+        _commitVotes(id_arbitration_committedVotes_MATIC);
 
     }
 
@@ -365,6 +392,7 @@ contract TestSetup is Test, DataStructuresLibrary {
         );
     }
 
+    // DOES NOT INITIALIZE PROJECT FROM CREATION
     function _payArbitrationFeesAndDrawJurors(uint256 _projectId) public {
         Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(_projectId));
         require(!petition.feePaidDefendant && !petition.feePaidPlaintiff);
@@ -376,6 +404,59 @@ contract TestSetup is Test, DataStructuresLibrary {
         Vm.Log[] memory entries = vm.getRecordedLogs();
         uint256 requestId = uint(bytes32(entries[2].data));
         vrf.fulfillRandomWords(requestId, address(court));
+    }
+
+    // DOES NOT INITIALIZE PROJECT FROM CREATION
+    function _confirmJury(uint256 _projectId) public {
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(_projectId));
+        require(uint(petition.phase) == uint(Phase.JurySelection));
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+        require(jury.confirmedJurors.length == 0);
+        uint256 jurorsNeeded = court.jurorsNeeded(petition.petitionId);
+        uint256 flatFee = court.jurorFlatFee();
+        for(uint i; i < jury.drawnJurors.length; ++i) {
+            vm.prank(jury.drawnJurors[i]);
+            court.acceptCase{value: flatFee}(petition.petitionId);
+            jury = court.getJury(petition.petitionId);
+            if(jury.confirmedJurors.length == jurorsNeeded) break;
+        }
+    }
+
+    // DOES NOT INITIALIZE PROJECT FROM CREATION
+    function _commitVotes(uint256 _projectId) public {
+        bytes32 juror_0_commit = keccak256(abi.encodePacked(true, "someSalt"));
+        bytes32 juror_1_commit = keccak256(abi.encodePacked(true, "someSalt"));
+        bytes32 juror_2_commit = keccak256(abi.encodePacked(false, "someSalt"));
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(_projectId));
+        require(uint(petition.phase) == uint(Phase.Voting));
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+        vm.prank(jury.confirmedJurors[0]);
+        court.commitVote(petition.petitionId, juror_0_commit);
+        vm.prank(jury.confirmedJurors[1]);
+        court.commitVote(petition.petitionId, juror_1_commit);
+        vm.prank(jury.confirmedJurors[2]);
+        court.commitVote(petition.petitionId, juror_2_commit);
+    }
+
+    // // DOES NOT INITIALIZE PROJECT FROM CREATION
+    // function _renderVerdict(uint256 _projectId, bool _vote0, bool _vote1, bool _vote2) public {
+
+    // }
+
+    function _customRuling(uint256 _projectId, bool[] memory _votes, bool _revealVotes) public {
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(_projectId));
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+        require(_votes.length == jury.confirmedJurors.length, "mismatched array sizes");
+        for(uint i; i < jury.confirmedJurors.length; ++i) {
+            vm.prank(jury.confirmedJurors[i]);
+            bytes32 commit = keccak256(abi.encodePacked(_votes[i], "someSalt"));
+            court.commitVote(petition.petitionId, commit);
+        }
+        if(!_revealVotes) return;
+        for(uint i; i < jury.confirmedJurors.length; ++i) {
+            vm.prank(jury.confirmedJurors[i]);
+            court.revealVote(petition.petitionId, _votes[i], "someSalt");
+        }
     }
 
 

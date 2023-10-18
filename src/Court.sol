@@ -34,49 +34,6 @@ contract Court is VRFConsumerBaseV2, DataStructuresLibrary {
     uint32 public numWords = 2; 
     mapping(uint256 => uint256) public vrfRequestToPetition;
 
-    // /**
-    //  * @notice the stage of a petition
-    //  * Discovery - evidence may be submitted (after paying arbitration fee)
-    //  * JurySelection - jury is drawn randomly and drawn jurors may accept the case
-    //  * Voting - jurors commit a hidden vote
-    //  * Ruling - jurors reveal their votes
-    //  * Verdict - all votes have been counted and a ruling is made
-    //  * DefaultJudgement - one party does not pay arbitration fee, petition is ruled in favor of paying party
-    //  * Dismissed - case is invalid and Marketplace reverts to original project conditions
-    //  * SettledExternally - case was settled by change order in Marketplace and arbitration does not progress
-    //  */
-    // enum Phase {
-    //     Discovery,
-    //     JurySelection, 
-    //     Voting, 
-    //     Ruling, 
-    //     Verdict,
-    //     DefaultJudgement, 
-    //     Dismissed, 
-    //     SettledExternally 
-    // }
-
-    // struct Petition {
-    //     uint256 petitionId;
-    //     uint256 projectId;
-    //     uint256 adjustedProjectFee;
-    //     uint256 providerStakeForfeit;
-    //     address plaintiff;
-    //     address defendant;
-    //     uint256 arbitrationFee;
-    //     bool feePaidPlaintiff;
-    //     bool feePaidDefendant;
-    //     uint256 discoveryStart;
-    //     uint256 selectionStart;
-    //     uint256 votingStart;
-    //     uint256 rulingStart;
-    //     uint256 verdictRenderedDate;
-    //     bool isAppeal;
-    //     bool petitionGranted;
-    //     Phase phase;
-    //     string[] evidence;
-    // }
-
     struct Jury {
         address[] drawnJurors;
         address[] confirmedJurors;
@@ -333,7 +290,7 @@ contract Court is VRFConsumerBaseV2, DataStructuresLibrary {
 
     /**
      * @notice pay arbitration fee and submit evidence
-     * @dev when both litigants have paid, random words will be requested from Chainlink and jury will be drawn
+     * @dev when both litigants have paid, random words will be requested and jury will be drawn
      */
     function payArbitrationFee(uint256 _petitionId, string[] calldata _evidenceURIs) external payable {
         Petition storage petition = petitions[_petitionId];
@@ -487,7 +444,7 @@ contract Court is VRFConsumerBaseV2, DataStructuresLibrary {
     }
 
     /**
-     * @dev called internally when a juror votes or when delinquentReveal() is called
+     * @dev called internally when a juror revelas vote or when delinquentReveal() is called
      * @return votesFor number of votes in favor of petition
      * @return votesAgainst number of votes against petition
      */
@@ -560,7 +517,10 @@ contract Court is VRFConsumerBaseV2, DataStructuresLibrary {
         if(juryPool.getJurorStatus(msg.sender) != IJuryPool.JurorStatus.Active) revert Court__InvalidJuror();
         bool isDrawnJuror;
         for(uint i; i < jury.drawnJurors.length; ++i) {
-            if(msg.sender == jury.drawnJurors[i]) isDrawnJuror = true;
+            if(msg.sender == jury.drawnJurors[i]) {
+                isDrawnJuror = true;
+                break;
+            }
         }
         if(!isDrawnJuror) revert Court__NotDrawnJuror();
         jurorStakes[msg.sender][_petitionId] = msg.value;
@@ -815,11 +775,10 @@ contract Court is VRFConsumerBaseV2, DataStructuresLibrary {
 
     function isConfirmedJuror(uint256 _petitionId, address _juror) public view returns (bool) {
         Jury memory jury = getJury(_petitionId);
-        bool isJuror;
         for(uint i; i < jury.confirmedJurors.length; ++i) {
-            if(_juror == jury.confirmedJurors[i]) isJuror = true;
+            if(_juror == jury.confirmedJurors[i]) return true;
         }
-        return isJuror;
+        return false;
     }
 
     function getJurorStakeHeld(address _juror, uint256 _petitionId) public view returns (uint256) {

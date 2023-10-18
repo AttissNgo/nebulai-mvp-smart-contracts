@@ -12,6 +12,8 @@ contract CourtPetitionTest is Test, TestSetup {
     event PetitionCreated(uint256 indexed petitionId, uint256 projectId);
     event ArbitrationFeePaid(uint256 indexed petitionId, address indexed user);
     event JurySelectionInitiated(uint256 indexed petitionId, uint256 requestId);
+    event CaseDismissed(uint256 indexed petitionId);
+    event DefaultJudgementEntered(uint256 indexed petitionId, address indexed claimedBy, bool verdict);
 
     function setUp() public {
         _setUp();
@@ -89,5 +91,149 @@ contract CourtPetitionTest is Test, TestSetup {
         Court.Jury memory jury = court.getJury(petition.petitionId);
         assertEq(jury.drawnJurors.length, court.jurorsNeeded(petition.petitionId) * 3);
     }
+
+    function test_payArbitrationFee_revert() public {
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_discovery_ERC20));
+        // not litigant 
+        vm.expectRevert(Court.Court__OnlyLitigant.selector);
+        vm.prank(zorro);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+        // insufficient amount
+        vm.expectRevert(Court.Court__InsufficientAmount.selector);
+        vm.prank(petition.plaintiff);
+        court.payArbitrationFee{value: petition.arbitrationFee - 1}(petition.petitionId, evidence1);
+        // fee already paid
+        vm.prank(petition.plaintiff);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+        vm.expectRevert(Court.Court__ArbitrationFeeAlreadyPaid.selector);
+        vm.prank(petition.plaintiff);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+    }
+
+    function test_submitAdditionalEvidence() public {
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_jurySelection_ERC20));
+        uint256 evidenceLengthBefore = petition.evidence.length;
+
+        vm.prank(petition.plaintiff);
+        court.submitAdditionalEvidence(petition.petitionId, evidence1);
+
+        petition = court.getPetition(petition.petitionId);    
+        assertEq(petition.evidence.length, evidenceLengthBefore + evidence1.length);
+    }
+
+    function test_submitAdditionalEvidence_revert() public {
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_discovery_MATIC));
+        // not litigant 
+        vm.expectRevert(Court.Court__OnlyLitigant.selector);
+        vm.prank(zorro);
+        court.submitAdditionalEvidence(petition.petitionId, evidence1);
+        // arbitration fee not paid
+        assertEq(petition.feePaidDefendant, false);
+        vm.expectRevert(Court.Court__ArbitrationFeeNotPaid.selector);
+        vm.prank(petition.defendant);
+        court.submitAdditionalEvidence(petition.petitionId, evidence1);
+        // wrong phase!
+        petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
+        vm.expectRevert(Court.Court__EvidenceCanNoLongerBeSubmitted.selector);
+        vm.prank(petition.defendant);
+        court.submitAdditionalEvidence(petition.petitionId, evidence1);
+    }
+
+    function test_dismissUnpaidCase() public {
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_discovery_MATIC));
+        assertTrue(!petition.feePaidDefendant && !petition.feePaidPlaintiff);
+        vm.warp(block.timestamp + court.DISCOVERY_PERIOD() + 1);
+
+        vm.expectEmit(true, false, false, false);
+        emit CaseDismissed(petition.petitionId);
+        court.dismissUnpaidCase(petition.petitionId);
+
+        petition = court.getPetition(petition.petitionId);
+        assertEq(uint(petition.phase), uint(Phase.Dismissed));
+    }
+
+    function test_dismissUnpaidCase_revert() public {
+        // nonexistant petition
+        vm.expectRevert(Court.Court__PetitionDoesNotExist.selector);
+        court.dismissUnpaidCase(10000000);
+        // fees not overdue (still within DISCOVERY_PERIOD)
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_discovery_ERC20));
+        vm.expectRevert(Court.Court__FeesNotOverdue.selector);
+        court.dismissUnpaidCase(petition.petitionId);
+        // at least one party has paid arbitration fee
+        vm.warp(block.timestamp + court.DISCOVERY_PERIOD() + 1);
+        vm.prank(petition.defendant);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+        vm.expectRevert(Court.Court__ArbitrationFeeAlreadyPaid.selector);
+        court.dismissUnpaidCase(petition.petitionId);
+    }
+
+    function test_requestDefaultJudgement() public {
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_discovery_ERC20));
+        vm.prank(petition.plaintiff);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+        uint256 reclaimAmount = court.getFeesHeld(petition.petitionId);
+        uint256 plaintiffBalBefore = petition.plaintiff.balance;
+        uint256 courtBalBefore = address(court).balance;
+        vm.warp(block.timestamp + court.DISCOVERY_PERIOD() + 1);
+
+        vm.expectEmit(true, true, false, true);
+        emit DefaultJudgementEntered(petition.petitionId, petition.plaintiff, true);
+        vm.prank(petition.plaintiff);
+        court.requestDefaultJudgement(petition.petitionId);
+
+        petition = court.getPetition(petition.petitionId);
+        assertEq(uint(petition.phase), uint(Phase.DefaultJudgement));
+        assertEq(petition.petitionGranted, true);
+        assertEq(court.getFeesHeld(petition.petitionId), 0);
+        assertEq(petition.plaintiff.balance, plaintiffBalBefore + reclaimAmount);
+        assertEq(address(court).balance, courtBalBefore - reclaimAmount);
+
+        // again but this time defendant pays
+        petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_discovery_MATIC));
+        vm.prank(petition.defendant);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+        reclaimAmount = court.getFeesHeld(petition.petitionId);
+        uint256 defendantBalBefore = petition.defendant.balance;
+        courtBalBefore = address(court).balance;
+
+        vm.expectEmit(true, true, false, true);
+        emit DefaultJudgementEntered(petition.petitionId, petition.defendant, false);
+        vm.prank(petition.defendant);
+        court.requestDefaultJudgement(petition.petitionId);
+
+        petition = court.getPetition(petition.petitionId);
+        assertEq(uint(petition.phase), uint(Phase.DefaultJudgement));
+        assertEq(petition.petitionGranted, false);
+        assertEq(court.getFeesHeld(petition.petitionId), 0);
+        assertEq(petition.defendant.balance, defendantBalBefore + reclaimAmount);
+        assertEq(address(court).balance, courtBalBefore - reclaimAmount);
+    }
+
+    function test_requestDefaultJudgement_revert() public {
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_discovery_MATIC));
+        vm.prank(petition.plaintiff);
+        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+        // in discovery, but fees not overdue (within DISCOVERY_PERIOD)
+        vm.expectRevert(Court.Court__FeesNotOverdue.selector);
+        vm.prank(petition.plaintiff);
+        court.requestDefaultJudgement(petition.petitionId);
+        // arbitration fee not paid
+        vm.warp(block.timestamp + court.DISCOVERY_PERIOD() + 1);
+        vm.expectRevert(Court.Court__ArbitrationFeeNotPaid.selector);
+        vm.prank(petition.defendant);
+        court.requestDefaultJudgement(petition.petitionId);
+        // not litigant
+        vm.expectRevert(Court.Court__OnlyLitigant.selector);
+        vm.prank(zorro);
+        court.requestDefaultJudgement(petition.petitionId);
+        // wrong phase
+        petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_jurySelection_MATIC));
+        vm.expectRevert(Court.Court__OnlyDuringDiscovery.selector);
+        vm.prank(petition.plaintiff);
+        court.requestDefaultJudgement(petition.petitionId);
+    }
+ 
+    // reclaiming fees
 }
         
