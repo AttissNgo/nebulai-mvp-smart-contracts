@@ -475,4 +475,22 @@ contract CourtJuryTest is Test, TestSetup {
         court.assignAdditionalJurors(petition.petitionId, additionalJurors);
     }
 
+    function test_delinquentCommit() public {
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+            // juror 0 votes
+        uint256 jurorStake = court.jurorFlatFee();
+        bytes32 commit = keccak256(abi.encodePacked(true, "someSalt"));
+        vm.prank(jury.confirmedJurors[0]);
+        court.commitVote(petition.petitionId, commit);
+
+            // jurors 1 & 2 have not votes
+        court.delinquentCommit(petition.petitionId);
+
+        // removes juror
+        // transfers stake to jury pool
+        // restarts voting period
+
+    }
+
 }
