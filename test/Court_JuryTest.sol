@@ -19,6 +19,10 @@ contract CourtJuryTest is Test, TestSetup {
     event JurorFeesClaimed(address indexed juror, uint256 amount);
     event AdditionalJurorDrawingInitiated(uint256 indexed petitionId, uint256 requestId);
     event AdditionalJurorsAssigned(uint256 indexed petitionId, address[] assignedJurors);
+    event JurorRemoved(uint256 indexed petitionId, address indexed juror);
+    event DelinquentReveal(uint256 indexed petitionId, bool deadlocked);
+    event ArbiterAssigned(uint256 indexed petitionId, address indexed arbiter);
+    event ArbiterVote(uint256 indexed petitionId, address indexed arbiter, bool vote);
 
     function setUp() public {
         _setUp();
@@ -63,58 +67,58 @@ contract CourtJuryTest is Test, TestSetup {
         assertEq(court.getJurorStakeHeld(jury.drawnJurors[0], petition.petitionId), 0);
         uint256 courtBalBefore = address(court).balance;
 
-        uint256 flatFee = court.jurorFlatFee();
+        uint256 stake = court.jurorFlatFee();
         vm.expectEmit(true, false, false, true);
         emit JurorConfirmed(petition.petitionId, jury.drawnJurors[0]);
         vm.prank(jury.drawnJurors[0]);
-        court.acceptCase{value: flatFee}(petition.petitionId);
+        court.acceptCase{value: stake}(petition.petitionId);
 
         jury = court.getJury(petition.petitionId);
         assertEq(jury.confirmedJurors[0], jury.drawnJurors[0]);
-        assertEq(court.getJurorStakeHeld(jury.confirmedJurors[0], petition.petitionId), flatFee);
-        assertEq(address(court).balance, courtBalBefore + flatFee);
+        assertEq(court.getJurorStakeHeld(jury.confirmedJurors[0], petition.petitionId), stake);
+        assertEq(address(court).balance, courtBalBefore + stake);
     }
 
     function test_acceptCase_revert() public {
-        uint256 flatFee = court.jurorFlatFee();
+        uint256 stake = court.jurorFlatFee();
         // all seats filled
         Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
         Court.Jury memory jury = court.getJury(petition.petitionId);
         vm.expectRevert(Court.Court__JurorSeatsFilled.selector);
         vm.prank(jury.drawnJurors[jury.drawnJurors.length - 1]);
-        court.acceptCase{value: flatFee}(petition.petitionId);
+        court.acceptCase{value: stake}(petition.petitionId);
         // already accepted
         petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_jurySelection_ERC20));
         jury = court.getJury(petition.petitionId);
         vm.prank(jury.drawnJurors[0]);
-        court.acceptCase{value: flatFee}(petition.petitionId);
+        court.acceptCase{value: stake}(petition.petitionId);
         vm.expectRevert(Court.Court__AlreadyConfirmedJuror.selector);
         vm.prank(jury.drawnJurors[0]);
-        court.acceptCase{value: flatFee}(petition.petitionId);  
+        court.acceptCase{value: stake}(petition.petitionId);  
         // insufficient stake 
         vm.expectRevert(Court.Court__InsufficientJurorStake.selector);
         vm.prank(jury.drawnJurors[1]);
-        court.acceptCase{value: flatFee - 1}(petition.petitionId);  
+        court.acceptCase{value: stake - 1}(petition.petitionId);  
         // not active juror
         vm.prank(jury.drawnJurors[1]);
         juryPool.pauseJuror();
         vm.expectRevert(Court.Court__InvalidJuror.selector);
         vm.prank(jury.drawnJurors[1]);
-        court.acceptCase{value: flatFee}(petition.petitionId);  
+        court.acceptCase{value: stake}(petition.petitionId);  
     }
 
     function test_juryAssembled() public {
         Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_jurySelection_MATIC));
         Court.Jury memory jury = court.getJury(petition.petitionId);
         uint256 jurorsNeeded = court.jurorsNeeded(petition.petitionId);
-        uint256 flatFee = court.jurorFlatFee();
+        uint256 stake = court.jurorFlatFee();
         for(uint i; i < jury.drawnJurors.length; ++i) {
             if(court.getJury(petition.petitionId).confirmedJurors.length == jurorsNeeded - 1) {
                 vm.expectEmit(true, false, false, false);
                 emit VotingInitiated(petition.petitionId);
             }
             vm.prank(jury.drawnJurors[i]);
-            court.acceptCase{value: flatFee}(petition.petitionId);
+            court.acceptCase{value: stake}(petition.petitionId);
             jury = court.getJury(petition.petitionId);
             if(jury.confirmedJurors.length == jurorsNeeded) break;
         }
@@ -302,7 +306,6 @@ contract CourtJuryTest is Test, TestSetup {
         uint256 juror0BalBefore = jury.confirmedJurors[0].balance;
         uint256 juror1BalBefore = jury.confirmedJurors[1].balance;
 
-
         vm.prank(jury.confirmedJurors[0]);
         court.revealVote(petition.petitionId, true, "someSalt");
         vm.prank(jury.confirmedJurors[1]);
@@ -478,19 +481,331 @@ contract CourtJuryTest is Test, TestSetup {
     function test_delinquentCommit() public {
         Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
         Court.Jury memory jury = court.getJury(petition.petitionId);
+        address juror1 = jury.confirmedJurors[1];
+        address juror2 = jury.confirmedJurors[2];
+        uint256 stake = court.jurorFlatFee();
             // juror 0 votes
-        uint256 jurorStake = court.jurorFlatFee();
         bytes32 commit = keccak256(abi.encodePacked(true, "someSalt"));
         vm.prank(jury.confirmedJurors[0]);
         court.commitVote(petition.petitionId, commit);
-
-            // jurors 1 & 2 have not votes
+        vm.warp(block.timestamp + court.VOTING_PERIOD() + 1);
+            // jurors 1 & 2 have not voted
+        assertEq(court.getCommit(juror1, petition.petitionId), 0x0);
+        assertEq(court.getCommit(juror2, petition.petitionId), 0x0);
+        uint256 drawnJurorsBefore = jury.drawnJurors.length;
+        uint256 confirmedJurorsBefore = jury.confirmedJurors.length;
+        assertEq(court.getJurorStakeHeld(juror1, petition.petitionId), stake);
+        assertEq(court.getJurorStakeHeld(juror2, petition.petitionId), stake);
+        uint256 juryReserveBefore = juryPool.getJuryReserve();
+        
+        vm.expectEmit(true, true, false, false);
+        emit JurorRemoved(petition.petitionId, juror1);
+        vm.expectEmit(true, true, false, false);
+        emit JurorRemoved(petition.petitionId, juror2);
         court.delinquentCommit(petition.petitionId);
 
-        // removes juror
-        // transfers stake to jury pool
-        // restarts voting period
+        // jurors removed
+        jury = court.getJury(petition.petitionId);
+        assertEq(jury.drawnJurors.length, drawnJurorsBefore - 2);
+        for(uint i; i < jury.drawnJurors.length; ++i) {
+            assertTrue(jury.drawnJurors[i] != juror1);
+            assertTrue(jury.drawnJurors[i] != juror2);
+        }
+        assertEq(jury.confirmedJurors.length, confirmedJurorsBefore - 2);
+        assertEq(court.isConfirmedJuror(petition.petitionId, juror1), false);
+        assertEq(court.isConfirmedJuror(petition.petitionId, juror2), false);
+        // stakes transferred to jury pool
+        assertEq(court.getJurorStakeHeld(juror1, petition.petitionId), 0);
+        assertEq(court.getJurorStakeHeld(juror2, petition.petitionId), 0);
+        assertEq(juryPool.getJuryReserve(), juryReserveBefore + stake + stake);
+        // voting period restarted
+        petition = court.getPetition(petition.petitionId);
+        assertEq(petition.votingStart, block.timestamp);
+    }
 
+    function test_delinquentCommit_revert() public {
+        // voting period still active
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
+        vm.expectRevert(Court.Court__VotingPeriodStillActive.selector);
+        court.delinquentCommit(petition.petitionId);
+        // no delinquent commits
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+        bytes32 commit = keccak256(abi.encodePacked(true, "someSalt"));
+        for(uint i; i < jury.confirmedJurors.length; ++i) {
+            vm.prank(jury.confirmedJurors[i]);
+            court.commitVote(petition.petitionId, commit);
+        }
+        vm.warp(block.timestamp + court.VOTING_PERIOD() + 1);
+        vm.expectRevert(Court.Court__NoDelinquentCommits.selector);
+        court.delinquentCommit(petition.petitionId);
+    }
+
+    function test_delinquentReveal_majority() public {
+        vm.pauseGasMetering();
+        bool[3] memory voteInputs = [false, true, true];
+        bool[] memory votes = new bool[](voteInputs.length);
+        for(uint i; i < voteInputs.length; ++i) {
+            votes[i] = voteInputs[i];
+        }
+        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
+        vm.resumeGasMetering();
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+            // juror0 will be removed, resulting in a majority decision
+        address juror0 = jury.confirmedJurors[0];
+        address juror1 = jury.confirmedJurors[1];
+        address juror2 = jury.confirmedJurors[2];
+        vm.prank(juror1);
+        court.revealVote(petition.petitionId, true, "someSalt");
+        vm.prank(juror2);
+        court.revealVote(petition.petitionId, true, "someSalt");
+        assertTrue(court.hasRevealedVote(juror1, petition.petitionId));
+        assertTrue(court.hasRevealedVote(juror2, petition.petitionId));
+        uint256 stake = court.jurorFlatFee();
+        uint256 drawnJurorsBefore = jury.drawnJurors.length;
+        uint256 confirmedJurorsBefore = jury.confirmedJurors.length;
+        assertEq(court.getJurorStakeHeld(juror0, petition.petitionId), stake);
+        uint256 juryReserveBefore = juryPool.getJuryReserve();
+
+        vm.warp(block.timestamp + court.VOTING_PERIOD() + 1);
+        vm.expectEmit(true, false, false, true);
+        emit VerdictReached(petition.petitionId, true, 2);
+        vm.expectEmit(true, false, false, true);
+        emit DelinquentReveal(petition.petitionId, false);
+        court.delinquentReveal(petition.petitionId);
+
+        // juror removed
+        jury = court.getJury(petition.petitionId);
+        assertEq(jury.drawnJurors.length, drawnJurorsBefore - 1);
+        for(uint i; i < jury.drawnJurors.length; ++i) {
+            assertFalse(jury.drawnJurors[i] == juror0);
+        }
+        assertEq(jury.confirmedJurors.length, confirmedJurorsBefore - 1);
+        assertEq(court.isConfirmedJuror(petition.petitionId, juror0), false);
+        // stake forfeitted
+        assertEq(court.getJurorStakeHeld(juror0, petition.petitionId), 0);
+        assertEq(juryPool.getJuryReserve(), juryReserveBefore + stake);
+        
+        // verdict rendered (majority)
+        petition = court.getPetition(petition.petitionId);
+        assertEq(uint(petition.phase), uint(Phase.Verdict));
+        assertEq(petition.petitionGranted, true);
+    }
+
+    function test_delinquentReveal_tie() public {
+        vm.pauseGasMetering();
+        bool[3] memory voteInputs = [false, false, true];
+        bool[] memory votes = new bool[](voteInputs.length);
+        for(uint i; i < voteInputs.length; ++i) {
+            votes[i] = voteInputs[i];
+        }
+        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
+        vm.resumeGasMetering();
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+            // juror0 will be removed, resulting in a majority decision
+        address juror0 = jury.confirmedJurors[0];
+        address juror1 = jury.confirmedJurors[1];
+        address juror2 = jury.confirmedJurors[2];
+        vm.prank(juror1);
+        court.revealVote(petition.petitionId, false, "someSalt");
+        vm.prank(juror2);
+        court.revealVote(petition.petitionId, true, "someSalt");
+        assertTrue(court.hasRevealedVote(juror1, petition.petitionId));
+        assertTrue(court.hasRevealedVote(juror2, petition.petitionId));
+        uint256 stake = court.jurorFlatFee();
+        uint256 drawnJurorsBefore = jury.drawnJurors.length;
+        uint256 confirmedJurorsBefore = jury.confirmedJurors.length;
+        assertEq(court.getJurorStakeHeld(juror0, petition.petitionId), stake);
+        uint256 juryReserveBefore = juryPool.getJuryReserve();
+
+        vm.warp(block.timestamp + court.VOTING_PERIOD() + 1);
+        // vm.expectEmit(true, false, false, true);
+        // emit VerdictReached(petition.petitionId, true, 2);
+        vm.expectEmit(true, false, false, true);
+        emit DelinquentReveal(petition.petitionId, true);
+        court.delinquentReveal(petition.petitionId);
+
+        // juror removed
+        jury = court.getJury(petition.petitionId);
+        assertEq(jury.drawnJurors.length, drawnJurorsBefore - 1);
+        for(uint i; i < jury.drawnJurors.length; ++i) {
+            assertFalse(jury.drawnJurors[i] == juror0);
+        }
+        assertEq(jury.confirmedJurors.length, confirmedJurorsBefore - 1);
+        assertEq(court.isConfirmedJuror(petition.petitionId, juror0), false);
+        // stake forfeitted
+        assertEq(court.getJurorStakeHeld(juror0, petition.petitionId), 0);
+        assertEq(juryPool.getJuryReserve(), juryReserveBefore + stake);
+        
+        // no verdict rendered (tie)
+        petition = court.getPetition(petition.petitionId);
+        assertEq(uint(petition.phase), uint(Phase.Ruling));
+        assertEq(petition.petitionGranted, false);
+        assertEq(court.votesTied(petition.petitionId), true);
+    }
+
+    function test_delinquentReveal_revert() public {
+        // wrong phase
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
+        vm.expectRevert(Court.Court__OnlyDuringRuling.selector);
+        court.delinquentReveal(petition.petitionId);
+        // ruling period still active
+        vm.pauseGasMetering();
+        bool[3] memory voteInputs = [false, false, true];
+        bool[] memory votes = new bool[](voteInputs.length);
+        for(uint i; i < voteInputs.length; ++i) {
+            votes[i] = voteInputs[i];
+        }
+        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
+        vm.resumeGasMetering();
+        petition = court.getPetition(petition.petitionId);
+        assertTrue(block.timestamp < petition.rulingStart + court.RULING_PERIOD());
+        vm.expectRevert(Court.Court__RulingPeriodStillActive.selector);
+        court.delinquentReveal(petition.petitionId);
+    }
+
+    function test_assignArbiter() public {
+        vm.pauseGasMetering();
+        bool[3] memory voteInputs = [false, false, true];
+        bool[] memory votes = new bool[](voteInputs.length);
+        for(uint i; i < voteInputs.length; ++i) {
+            votes[i] = voteInputs[i];
+        }
+        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+        // juror0 will be removed, resulting in a tie
+        address juror1 = jury.confirmedJurors[1];
+        address juror2 = jury.confirmedJurors[2];
+        vm.prank(juror1);
+        court.revealVote(petition.petitionId, false, "someSalt");
+        vm.prank(juror2);
+        court.revealVote(petition.petitionId, true, "someSalt");
+        vm.resumeGasMetering();
+        vm.warp(block.timestamp + court.RULING_PERIOD() + 1);
+        court.delinquentReveal(petition.petitionId);
+        assertEq(court.arbiter(petition.petitionId), address(0));
+
+        address arbiter = jury.drawnJurors[jury.drawnJurors.length -1]; // we know this juror is eligible
+        vm.expectEmit(true, true, false, false);
+        emit ArbiterAssigned(petition.petitionId, arbiter);
+        vm.prank(admin1);
+        court.assignArbiter(petition.petitionId, arbiter);
+
+        assertEq(court.arbiter(petition.petitionId), arbiter);
+    }
+
+    function test_assignArbiter_revert() public {
+        // case not deadlocked
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
+        vm.expectRevert(Court.Court__CaseNotDeadlocked.selector);
+        vm.prank(admin1);
+        court.assignArbiter(petition.petitionId, admin1);
+
+        vm.pauseGasMetering();
+        bool[3] memory voteInputs = [false, false, true];
+        bool[] memory votes = new bool[](voteInputs.length);
+        for(uint i; i < voteInputs.length; ++i) {
+            votes[i] = voteInputs[i];
+        }
+        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+        address juror1 = jury.confirmedJurors[1];
+        address juror2 = jury.confirmedJurors[2];
+        vm.prank(juror1);
+        court.revealVote(petition.petitionId, false, "someSalt");
+        vm.prank(juror2);
+        court.revealVote(petition.petitionId, true, "someSalt");
+        vm.resumeGasMetering();
+        vm.warp(block.timestamp + court.RULING_PERIOD() + 1);
+        court.delinquentReveal(petition.petitionId);
+
+        // not admin
+        vm.expectRevert(Court.Court__OnlyAdmin.selector);
+        vm.prank(alice);
+        court.assignArbiter(petition.petitionId, admin1);
+        // invalid arbiter - litigant
+        vm.expectRevert(Court.Court__InvalidArbiter.selector);
+        vm.prank(admin1);
+        court.assignArbiter(petition.petitionId, petition.defendant);
+        // invalid arbiter - ineligible juror
+        vm.prank(admin1);
+        juryPool.pauseJuror();
+        vm.expectRevert(Court.Court__InvalidArbiter.selector);
+        vm.prank(admin1);
+        court.assignArbiter(petition.petitionId, admin1);
+        // invalid arbiter - confirmed juror (no double votes)
+        vm.expectRevert(Court.Court__InvalidArbiter.selector);
+        vm.prank(admin1);
+        court.assignArbiter(petition.petitionId, jury.confirmedJurors[2]);
+        // wrong phase
+        vm.prank(admin1);
+        court.assignArbiter(petition.petitionId, admin2);
+        vm.prank(admin2);
+        court.breakTie(petition.petitionId, false);
+        vm.expectRevert(Court.Court__OnlyDuringRuling.selector);
+        vm.prank(admin1);
+        court.assignArbiter(petition.petitionId, admin2);
+    }
+
+    function test_breakTie() public {
+        vm.pauseGasMetering();
+        bool[3] memory voteInputs = [false, false, true];
+        bool[] memory votes = new bool[](voteInputs.length);
+        for(uint i; i < voteInputs.length; ++i) {
+            votes[i] = voteInputs[i];
+        }
+        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
+        Court.Jury memory jury = court.getJury(petition.petitionId);
+        address juror1 = jury.confirmedJurors[1];
+        address juror2 = jury.confirmedJurors[2];
+        vm.prank(juror1);
+        court.revealVote(petition.petitionId, false, "someSalt");
+        vm.prank(juror2);
+        court.revealVote(petition.petitionId, true, "someSalt");
+        vm.warp(block.timestamp + court.RULING_PERIOD() + 1);
+        court.delinquentReveal(petition.petitionId);
+        address arbiter = jury.drawnJurors[jury.drawnJurors.length -1]; // we know this juror is eligible
+        vm.prank(admin1);
+        court.assignArbiter(petition.petitionId, arbiter);
+        vm.resumeGasMetering();
+        assertTrue(court.votesTied(petition.petitionId));
+        assertEq(uint(petition.phase), uint(Phase.Ruling));
+        uint256 jurorFee = court.jurorFlatFee();
+        // uint256 juror1BalBefore = juror1.balance;
+        uint256 juror2FeesOwedBefore = court.getJurorFeesOwed(juror2);
+        uint256 juryReserveBefore = juryPool.getJuryReserve();
+
+        vm.expectEmit(true, true, false, true);
+        emit ArbiterVote(petition.petitionId, arbiter, true);
+        vm.prank(arbiter);
+        court.breakTie(petition.petitionId, true);
+
+        // verdict rendered
+        petition = court.getPetition(petition.petitionId);
+        assertEq(uint(petition.phase), uint(Phase.Verdict));
+        assertEq(petition.petitionGranted, true);
+        // majority (juror2) paid
+        assertEq(court.getJurorFeesOwed(juror2), juror2FeesOwedBefore + jurorFee);
+        // minority (juror1) fee + forfeitted fee (juror0) transferred
+        assertEq(juryPool.getJuryReserve(), juryReserveBefore + jurorFee + jurorFee);
+    }
+
+    function test_breakTie_revert() public {
+        // wrong phase - case tested in test_assignArbiter_revert()
+        // not arbiter
+        bool[3] memory voteInputs = [false, false, true];
+        bool[] memory votes = new bool[](voteInputs.length);
+        for(uint i; i < voteInputs.length; ++i) {
+            votes[i] = voteInputs[i];
+        }
+        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
+        vm.expectRevert(Court.Court__InvalidArbiter.selector);
+        vm.prank(admin1);
+        court.breakTie(petition.petitionId, true);
     }
 
 }

@@ -217,6 +217,16 @@ contract Court is VRFConsumerBaseV2, DataStructuresLibrary {
         return drawnJuror;
     }
 
+    function jurorsNeeded(uint256 petitionId) public view returns (uint256) {
+        if(!petitions[petitionId].isAppeal) return 3;
+        else return 5;
+    } 
+
+    function calculateArbitrationFee(bool isAppeal) public view returns (uint256) {
+        if(!isAppeal) return 3 * jurorFlatFee;
+        else return 5 * jurorFlatFee;
+    }
+
     ////////////////////
     ///   PETITION   ///
     ////////////////////
@@ -275,18 +285,15 @@ contract Court is VRFConsumerBaseV2, DataStructuresLibrary {
         petition.providerStakeForfeit = originalPetition.providerStakeForfeit;
         petition.plaintiff = originalPetition.plaintiff;
         petition.defendant = originalPetition.defendant;
-        petition.arbitrationFee = calculateArbitrationFee(true);
         petition.isAppeal = true;
+        petition.arbitrationFee = calculateArbitrationFee(true);
         petition.discoveryStart = block.timestamp;
         petitions[petitionId] = petition;
         emit AppealCreated(petitionId, originalPetitionId, _projectId);
         return petitionId;
     }
 
-    function calculateArbitrationFee(bool isAppeal) public view returns (uint256) {
-        if(!isAppeal) return 3 * jurorFlatFee;
-        else return 5 * jurorFlatFee;
-    }
+    
 
     /**
      * @notice pay arbitration fee and submit evidence
@@ -417,11 +424,6 @@ contract Court is VRFConsumerBaseV2, DataStructuresLibrary {
         vrfRequestToPetition[requestId] = _petitionId;
         return requestId;
     }
-
-    function jurorsNeeded(uint256 petitionId) public view returns (uint256) {
-        if(petitions[petitionId].isAppeal) return 5;
-        else return 3;
-    } 
 
     /**
      * @dev called internally when enough jurors have accepted a case

@@ -453,6 +453,9 @@ contract TestSetup is Test, DataStructuresLibrary {
             court.commitVote(petition.petitionId, commit);
         }
         if(!_revealVotes) return;
+        if(block.timestamp < petition.votingStart + court.VOTING_PERIOD()) {
+            vm.warp(block.timestamp + court.VOTING_PERIOD() + 1);
+        }
         for(uint i; i < jury.confirmedJurors.length; ++i) {
             vm.prank(jury.confirmedJurors[i]);
             court.revealVote(petition.petitionId, _votes[i], "someSalt");

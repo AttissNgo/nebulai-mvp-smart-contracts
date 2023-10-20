@@ -14,6 +14,8 @@ contract CourtPetitionTest is Test, TestSetup {
     event JurySelectionInitiated(uint256 indexed petitionId, uint256 requestId);
     event CaseDismissed(uint256 indexed petitionId);
     event DefaultJudgementEntered(uint256 indexed petitionId, address indexed claimedBy, bool verdict);
+    event SettledExternally(uint256 indexed petitionId);
+    event ArbitrationFeeReclaimed(uint256 indexed petitionId, address indexed claimedBy, uint256 amount);
 
     function setUp() public {
         _setUp();
@@ -233,7 +235,117 @@ contract CourtPetitionTest is Test, TestSetup {
         vm.prank(petition.plaintiff);
         court.requestDefaultJudgement(petition.petitionId);
     }
+
+    function test_settledExternally() public {
+        Project memory project = marketplace.getProject(id_arbitration_discovery_ERC20);
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
+        vm.prank(project.provider);
+        marketplace.proposeSettlement(
+            project.projectId,
+            settlementAdjustedProjectFee,
+            settlementProviderStakeForfeit,
+            "ipfs://settlementDetails"
+        );
+
+        vm.expectEmit(true, false, false, false);
+        emit SettledExternally(petition.petitionId);
+        vm.prank(project.buyer);
+        marketplace.approveChangeOrder(project.projectId);
+
+        petition = court.getPetition(petition.petitionId);
+        assertEq(uint(petition.phase), uint(Phase.SettledExternally));
+
+    }
  
-    // reclaiming fees
+    function test_reclaimArbitrationFee() public {
+        bool[3] memory voteInputs = [false, false, true];
+        bool[] memory votes = new bool[](voteInputs.length);
+        for(uint i; i < voteInputs.length; ++i) {
+            votes[i] = voteInputs[i];
+        }
+        _customRuling(id_arbitration_confirmedJury_MATIC, votes, true);
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
+        assertEq(uint(petition.phase), uint(Phase.Verdict));
+        assertEq(petition.petitionGranted, false);
+        assertEq(court.getFeesHeld(petition.petitionId), petition.arbitrationFee);
+        uint256 defendantBalBefore = petition.defendant.balance;
+        uint256 courtBalBefore = address(court).balance;
+        
+        vm.expectEmit(true, true, false, true);
+        emit ArbitrationFeeReclaimed(petition.petitionId, petition.defendant, petition.arbitrationFee);
+        vm.prank(petition.defendant);
+        court.reclaimArbitrationFee(petition.petitionId);
+
+        assertEq(court.getFeesHeld(petition.petitionId), 0);
+        assertEq(petition.defendant.balance, defendantBalBefore + petition.arbitrationFee);
+        assertEq(address(court).balance, courtBalBefore - petition.arbitrationFee);
+
+
+        // once again, but with a granted petition
+        voteInputs = [false, true, true];
+        votes = new bool[](voteInputs.length);
+        for(uint i; i < voteInputs.length; ++i) {
+            votes[i] = voteInputs[i];
+        }
+        _customRuling(id_arbitration_confirmedJury_ERC20, votes, true);
+        petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_ERC20));
+        assertEq(uint(petition.phase), uint(Phase.Verdict));
+        assertEq(petition.petitionGranted, true);
+        assertEq(court.getFeesHeld(petition.petitionId), petition.arbitrationFee);
+        uint256 plaintiffBalBefore = petition.plaintiff.balance;
+        courtBalBefore = address(court).balance;
+        
+        vm.expectEmit(true, true, false, true);
+        emit ArbitrationFeeReclaimed(petition.petitionId, petition.plaintiff, petition.arbitrationFee);
+        vm.prank(petition.plaintiff);
+        court.reclaimArbitrationFee(petition.petitionId);
+
+        assertEq(court.getFeesHeld(petition.petitionId), 0);
+        assertEq(petition.plaintiff.balance, plaintiffBalBefore + petition.arbitrationFee);
+        assertEq(address(court).balance, courtBalBefore - petition.arbitrationFee);
+    }
+
+    function test_reclaimArbitrationFee_revert() public {
+        // wrong phase
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
+        vm.expectRevert(Court.Court__ArbitrationFeeCannotBeReclaimed.selector);
+        vm.prank(petition.plaintiff);
+        court.reclaimArbitrationFee(petition.petitionId);
+        
+        bool[3] memory voteInputs = [false, false, true];
+        bool[] memory votes = new bool[](voteInputs.length);
+        for(uint i; i < voteInputs.length; ++i) {
+            votes[i] = voteInputs[i];
+        }
+        _customRuling(id_arbitration_confirmedJury_MATIC, votes, true);
+        petition = court.getPetition(petition.petitionId);
+        
+        // not litigant
+        vm.expectRevert(Court.Court__OnlyLitigant.selector);
+        vm.prank(admin1);
+        court.reclaimArbitrationFee(petition.petitionId);
+        // not prevailing party 
+        assertEq(petition.petitionGranted, false);
+        vm.expectRevert(Court.Court__OnlyPrevailingParty.selector);
+        vm.prank(petition.plaintiff);
+        court.reclaimArbitrationFee(petition.petitionId);
+        // settlement - arbitration fee NOT paid
+        Project memory project = marketplace.getProject(id_arbitration_discovery_ERC20);
+        vm.prank(project.provider);
+        marketplace.proposeSettlement(
+            project.projectId,
+            settlementAdjustedProjectFee,
+            settlementProviderStakeForfeit,
+            "ipfs://settlementDetails"
+        );
+        vm.prank(project.buyer);
+        marketplace.approveChangeOrder(project.projectId);
+        petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
+        assertEq(petition.feePaidDefendant, false);
+        vm.expectRevert(Court.Court__ArbitrationFeeNotPaid.selector);
+        vm.prank(petition.defendant);
+        court.reclaimArbitrationFee(petition.petitionId);
+
+    }
 }
         
