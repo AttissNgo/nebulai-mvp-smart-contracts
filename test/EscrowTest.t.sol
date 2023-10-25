@@ -20,6 +20,7 @@ contract EscrowTest is Test, TestSetup {
         _whitelistUsers();
         _registerJurors();
         _initializeTestProjects();
+        _initializeArbitrationProjects();
     }
 
     //////////////////////
@@ -66,6 +67,27 @@ contract EscrowTest is Test, TestSetup {
         assertFalse(IEscrow(project.escrow).isReleasable());
         project = marketplace.getProject(id_challenged_MATIC);
         assertFalse(IEscrow(project.escrow).isReleasable());
+    }
+
+    function test_withdraw_revert() public {
+        // not buyer or provider
+        Project memory project = marketplace.getProject(id_approved_MATIC);
+        vm.expectRevert(Escrow.Escrow__OnlyBuyerOrProvider.selector);
+        vm.prank(zorro);
+        IEscrow(project.escrow).withdraw();
+        // not releasable - wrong status
+        project = marketplace.getProject(id_active_MATIC);
+        vm.expectRevert(Escrow.Escrow__NotReleasable.selector);
+        vm.prank(project.provider);
+        IEscrow(project.escrow).withdraw();
+        // already withdrawn
+        project = marketplace.getProject(id_approved_MATIC);
+        vm.prank(project.provider);
+        IEscrow(project.escrow).withdraw();
+        assertTrue(IEscrow(project.escrow).hasWithdrawn(project.provider));
+        vm.expectRevert(Escrow.Escrow__UserHasAlreadyWithdrawn.selector);
+        vm.prank(project.provider);
+        IEscrow(project.escrow).withdraw();
     }
 
     function test_withdraw_approved() public {
@@ -181,28 +203,100 @@ contract EscrowTest is Test, TestSetup {
         escrow.withdraw();
         assertEq(_getBalance(project.buyer, project.paymentToken), buyerBefore + amountDue);
         assertEq(_getBalance(address(escrow), project.paymentToken), 0);
-
     }
 
-    function test_withdraw_revert() public {
-        // not buyer or provider
-        Project memory project = marketplace.getProject(id_approved_MATIC);
-        vm.expectRevert(Escrow.Escrow__OnlyBuyerOrProvider.selector);
-        vm.prank(zorro);
-        IEscrow(project.escrow).withdraw();
-        // not releasable - wrong status
-        project = marketplace.getProject(id_active_MATIC);
-        vm.expectRevert(Escrow.Escrow__NotReleasable.selector);
-        vm.prank(project.provider);
-        IEscrow(project.escrow).withdraw();
-        // already withdrawn
-        project = marketplace.getProject(id_approved_MATIC);
-        vm.prank(project.provider);
-        IEscrow(project.escrow).withdraw();
-        assertTrue(IEscrow(project.escrow).hasWithdrawn(project.provider));
-        vm.expectRevert(Escrow.Escrow__UserHasAlreadyWithdrawn.selector);
-        vm.prank(project.provider);
-        IEscrow(project.escrow).withdraw();
+    function test_withdraw_court_order_granted() public {
+        _discoveryToResolved(id_arbitration_discovery_ERC20, true);
+        _discoveryToResolved(id_arbitration_discovery_MATIC, true);
+        uint256[2] memory grantedProjects = [id_arbitration_discovery_ERC20, id_arbitration_discovery_MATIC];
+        for(uint i; i < grantedProjects.length; ++i) {
+            Project memory project = marketplace.getProject(grantedProjects[i]);
+            Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
+            IEscrow escrow = IEscrow(project.escrow);
+            (uint escrowBefore, uint buyerBefore, uint providerBefore, uint marketplaceBefore) = _snapshotBeforeBalances(project.projectId);
+            assertEq(petition.plaintiff, project.buyer); // buyer is winner
+            vm.prank(project.provider);
+            marketplace.waiveAppeal(project.projectId);
+
+            // buyer withdraw
+            (uint256 amountDue, uint256 commission) = escrow.amountDue(project.buyer);
+            assertEq(amountDue, project.projectFee - petition.adjustedProjectFee + petition.providerStakeForfeit);
+            vm.prank(project.buyer);
+            escrow.withdraw();
+            assertEq(_getBalance(project.buyer, project.paymentToken), buyerBefore + amountDue);
+            assertEq(_getBalance(address(escrow), project.paymentToken), escrowBefore - amountDue);
+
+            // provider withdraw
+            (amountDue, commission) = escrow.amountDue(project.provider);
+            assertEq(commission, petition.adjustedProjectFee/100);
+            assertEq(amountDue, petition.adjustedProjectFee - commission + project.providerStake - petition.providerStakeForfeit);
+            vm.prank(project.provider);
+            escrow.withdraw();
+            assertEq(_getBalance(project.provider, project.paymentToken), providerBefore + amountDue);
+            assertEq(_getBalance(address(marketplace), project.paymentToken), marketplaceBefore + commission);
+            assertEq(_getBalance(address(escrow), project.paymentToken), 0);
+        }
+    }
+
+    function test_withdraw_court_order_denied() public {
+        _discoveryToResolved(id_arbitration_discovery_ERC20, false);
+        _discoveryToResolved(id_arbitration_discovery_MATIC, false);
+        uint256[2] memory grantedProjects = [id_arbitration_discovery_ERC20, id_arbitration_discovery_MATIC];
+        for(uint i; i < grantedProjects.length; ++i) {
+            Project memory project = marketplace.getProject(grantedProjects[i]);
+            Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
+            IEscrow escrow = IEscrow(project.escrow);
+            (uint escrowBefore, uint buyerBefore, uint providerBefore, uint marketplaceBefore) = _snapshotBeforeBalances(project.projectId);
+            assertEq(petition.plaintiff, project.buyer); // buyer is loser
+            vm.prank(project.buyer);
+            marketplace.waiveAppeal(project.projectId);
+
+            // buyer withdraw - should revert due to zero amount
+            vm.expectRevert(Escrow.Escrow__NoPaymentDue.selector);
+            vm.prank(project.buyer);
+            escrow.withdraw();
+
+            // provider withdraw
+            (uint256 amountDue, uint256 commission) = escrow.amountDue(project.provider);
+            assertEq(commission, project.projectFee/100);
+            assertEq(amountDue, project.projectFee - commission + project.providerStake);
+            vm.prank(project.provider);
+            escrow.withdraw();
+            assertEq(_getBalance(project.provider, project.paymentToken), providerBefore + amountDue);
+            assertEq(_getBalance(address(marketplace), project.paymentToken), marketplaceBefore + commission);
+            assertEq(_getBalance(address(escrow), project.paymentToken), 0);
+        }
+    }
+
+    function test_withdraw_arbitration_dismissed() public {
+        _disputeProject(id_challenged_ERC20, changeOrderAdjustedProjectFee, changeOrderProviderStakeForfeit);
+        _disputeProject(id_challenged_MATIC, changeOrderAdjustedProjectFee, changeOrderProviderStakeForfeit);
+        uint256[2] memory dismissedProjects = [id_challenged_ERC20, id_challenged_MATIC];
+        for(uint i; i < dismissedProjects.length; ++i) {
+            Project memory project = marketplace.getProject(dismissedProjects[i]);
+            Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
+            vm.warp(block.timestamp + court.DISCOVERY_PERIOD() + 1);
+            court.dismissUnpaidCase(petition.petitionId);
+            vm.prank(project.provider);
+            marketplace.resolveDismissedCase(project.projectId);
+            IEscrow escrow = IEscrow(project.escrow);
+            (uint escrowBefore, uint buyerBefore, uint providerBefore, uint marketplaceBefore) = _snapshotBeforeBalances(project.projectId);
+
+            // buyer withdraw - should revert due to zero amount
+            vm.expectRevert(Escrow.Escrow__NoPaymentDue.selector);
+            vm.prank(project.buyer);
+            escrow.withdraw();
+
+            // provider withdraw
+            (uint256 amountDue, uint256 commission) = escrow.amountDue(project.provider);
+            assertEq(commission, project.projectFee/100);
+            assertEq(amountDue, project.projectFee - commission + project.providerStake);
+            vm.prank(project.provider);
+            escrow.withdraw();
+            assertEq(_getBalance(project.provider, project.paymentToken), providerBefore + amountDue);
+            assertEq(_getBalance(address(marketplace), project.paymentToken), marketplaceBefore + commission);
+            assertEq(_getBalance(address(escrow), project.paymentToken), 0);
+        }
     }
 
     ////////////////

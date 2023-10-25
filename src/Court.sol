@@ -756,6 +756,7 @@ contract Court is VRFConsumerBaseV2, DataStructuresLibrary {
     //////////////////////
 
     function setJurorFlatFee(uint256 _flatFee) external onlyGovernor {
+        require(_flatFee > 0);
         jurorFlatFee = _flatFee;
     }
 

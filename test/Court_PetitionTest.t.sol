@@ -16,6 +16,7 @@ contract CourtPetitionTest is Test, TestSetup {
     event DefaultJudgementEntered(uint256 indexed petitionId, address indexed claimedBy, bool verdict);
     event SettledExternally(uint256 indexed petitionId);
     event ArbitrationFeeReclaimed(uint256 indexed petitionId, address indexed claimedBy, uint256 amount);
+    event AppealCreated(uint256 indexed petitionId, uint256 indexed originalPetitionId, uint256 projectId);
 
     function setUp() public {
         _setUp();
@@ -345,7 +346,52 @@ contract CourtPetitionTest is Test, TestSetup {
         vm.expectRevert(Court.Court__ArbitrationFeeNotPaid.selector);
         vm.prank(petition.defendant);
         court.reclaimArbitrationFee(petition.petitionId);
-
     }
+
+    function test_setJurorFlatFee() public {
+        assertEq(court.jurorFlatFee(), 20 ether);
+        bytes memory data = abi.encodeWithSignature("setJurorFlatFee(uint256)", 100 ether);
+        vm.prank(admin1);
+        uint256 txIndex = governor.proposeTransaction(address(court), 0, data);
+        util_executeGovernorTx(txIndex);
+
+        assertEq(court.jurorFlatFee(), 100 ether);
+    }
+
+    function test_setJurorFlatFee_revert() public {
+        bytes memory data = abi.encodeWithSignature("setJurorFlatFee(uint256)", 0);
+        vm.prank(admin1);
+        uint256 txIndex = governor.proposeTransaction(address(court), 0, data);
+        vm.prank(admin2);
+        governor.signTransaction(txIndex);
+        vm.expectRevert();
+        vm.prank(admin3);
+        governor.signTransaction(txIndex);
+    }
+
+    function test_appeal() public {
+        uint256 currentPetitionId = court.petitionIds();
+        Project memory project = marketplace.getProject(id_arbitration_discovery_ERC20);
+        Petition memory oldPetition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
+        _discoveryToResolved(project.projectId, true);
+
+        vm.expectEmit(true, true, false, true);
+        emit AppealCreated(currentPetitionId + 1, marketplace.getArbitrationPetitionId(project.projectId), project.projectId);
+        vm.prank(project.provider);
+        uint256 newPetitionId = marketplace.appealRuling(project.projectId);
+
+        // new petition created
+        Petition memory newPetition = court.getPetition(newPetitionId);
+        assertEq(newPetition.petitionId, newPetitionId);
+        assertEq(newPetition.projectId, project.projectId);
+        assertEq(newPetition.adjustedProjectFee, oldPetition.adjustedProjectFee);
+        assertEq(newPetition.providerStakeForfeit, oldPetition.providerStakeForfeit);
+        assertEq(newPetition.plaintiff, oldPetition.plaintiff);
+        assertEq(newPetition.defendant, oldPetition.defendant);
+        assertEq(newPetition.isAppeal, true);
+        assertEq(newPetition.arbitrationFee, court.calculateArbitrationFee(newPetition.isAppeal));
+        assertEq(newPetition.discoveryStart, block.timestamp);
+    }
+
 }
         

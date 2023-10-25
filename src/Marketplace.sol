@@ -408,10 +408,6 @@ contract Marketplace is DataStructuresLibrary {
             revert Marketplace__ChangeOrderPeriodStillActive();
         }
         p.status = Status.Disputed;
-        // ChangeOrder memory emptyChangeOrder;
-        // p.changeOrderPeriodInitiated = 0;
-        // changeOrders[p.projectId] = emptyChangeOrder;
-        
         // we know change order exists, so no need to check
         ChangeOrder storage order = changeOrders[_projectId][changeOrders[_projectId].length - 1];
         order.active = false;

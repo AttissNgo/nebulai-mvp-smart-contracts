@@ -80,7 +80,7 @@ contract TestSetup is Test, DataStructuresLibrary {
     uint256 projectFee = 1000 ether;
     uint256 providerStake = 50 ether;
     uint256 dueDate;
-    uint256 reviewPeriodLength = 3 days;
+    uint256 reviewPeriodLength = 30 days;
     string detailsURI = "ipfs://someDetails/";
     
     // test project IDs
@@ -167,8 +167,6 @@ contract TestSetup is Test, DataStructuresLibrary {
 
         // initialize test project variables
         dueDate = block.timestamp + 30 days;
-
-        
     }
 
     function _whitelistUsers() public {
@@ -380,6 +378,7 @@ contract TestSetup is Test, DataStructuresLibrary {
     }
 
     // DOES NOT INITIALIZE PROJECT FROM CREATION
+    // Advances time past change order period!
     function _disputeProject(uint256 _projectId, uint256 _adjustedFee, uint256 _stakeForfeit) public {
         Project memory project = marketplace.getProject(_projectId);
         require(uint(project.status) == uint(Status.Challenged) || uint(project.status )== uint(Status.Discontinued), "wrong phase");
@@ -453,13 +452,30 @@ contract TestSetup is Test, DataStructuresLibrary {
             court.commitVote(petition.petitionId, commit);
         }
         if(!_revealVotes) return;
-        if(block.timestamp < petition.votingStart + court.VOTING_PERIOD()) {
-            vm.warp(block.timestamp + court.VOTING_PERIOD() + 1);
-        }
+        // if(block.timestamp < petition.votingStart + court.VOTING_PERIOD()) {
+        //     vm.warp(block.timestamp + court.VOTING_PERIOD() + 1);
+        // }
         for(uint i; i < jury.confirmedJurors.length; ++i) {
             vm.prank(jury.confirmedJurors[i]);
             court.revealVote(petition.petitionId, _votes[i], "someSalt");
         }
+    }
+
+    function _discoveryToResolved(uint256 _projectInDiscovery, bool _granted) public returns (uint256) {
+        Project memory project = marketplace.getProject(_projectInDiscovery);
+        require(project.status == Status.Disputed, "project is not disputed");
+        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
+        require(petition.phase == Phase.Discovery, "petition not in discovery");
+        bool[3] memory voteInputs = [true, false, true];
+        if(!_granted) voteInputs = [false, false, true];
+        bool[] memory votes = new bool[](voteInputs.length);
+        for(uint i; i < voteInputs.length; ++i) {
+            votes[i] = voteInputs[i];
+        }
+        _payArbitrationFeesAndDrawJurors(project.projectId);
+        _confirmJury(project.projectId);
+        _customRuling(project.projectId, votes, true);
+        return project.projectId;
     }
 
 
