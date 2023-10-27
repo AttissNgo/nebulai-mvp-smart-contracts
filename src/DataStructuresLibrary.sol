@@ -15,13 +15,13 @@ contract DataStructuresLibrary {
      * Discontinued - either party quits and a change order period begins to handle partial payment
      * Completed - provider claims project is complete and is awaiting buyer approval
      * Approved - buyer is satisfied, escrow will release project fee to provider, Project is closed
-     * Challenged - buyer is unsatisfied and submits a Change Order - provider has a chance to accept OR go to arbitration 
-     * Disputed - Change Order NOT accepted by provider -> Project goes to arbitration
-     * Appealed - the correctness of the court's decision is challenged -> a new arbitration case is opened
+     * Challenged - buyer is unsatisfied and submits a Change Order - provider has a chance to accept OR go to mediation 
+     * Disputed - Change Order NOT accepted by provider -> Project goes to mediation
+     * Appealed - the correctness of the mediationService's decision is challenged -> a new mediation case is opened
      * Resolved_ChangeOrder - escrow releases funds according to change order
-     * Resolved_CourtOrder - escrow releases funds according to court petition
+     * Resolved_Mediation - escrow releases funds according to mediationService dispute
      * Resolved_DelinquentPayment - escrow releases funds according to original agreement
-     * Resolved_ArbitrationDismissed - escrow releases funds according to original agreement
+     * Resolved_MediationDismissed - escrow releases funds according to original agreement
      */
     enum Status { 
         Created, 
@@ -34,9 +34,9 @@ contract DataStructuresLibrary {
         Disputed,
         Appealed, 
         Resolved_ChangeOrder, 
-        Resolved_CourtOrder, 
+        Resolved_Mediation, 
         Resolved_DelinquentPayment, 
-        Resolved_ArbitrationDismissed 
+        Resolved_MediationDismissed 
     }
 
     /**
@@ -76,48 +76,48 @@ contract DataStructuresLibrary {
     }
 
     /////////////////////////////////
-    ///   COURT DATA STRUCTURES   ///
+    ///   MEDIATION_SERVICE DATA STRUCTURES   ///
     /////////////////////////////////
 
     /**
-     * @notice the stage of a petition
-     * Discovery - evidence may be submitted (after paying arbitration fee)
-     * JurySelection - jury is drawn randomly and drawn jurors may accept the case
-     * Voting - jurors commit a hidden vote
-     * Ruling - jurors reveal their votes
-     * Verdict - all votes have been counted and a ruling is made
-     * DefaultJudgement - one party does not pay arbitration fee, petition is ruled in favor of paying party
+     * @notice the stage of a dispute
+     * Disclosure - evidence may be submitted (after paying mediation fee)
+     * PanelSelection - panel is drawn randomly and drawn mediators may accept the case
+     * Voting - mediators commit a hidden vote
+     * Determination - mediators reveal their votes
+     * Decision - all votes have been counted and a determination is made
+     * DefaultDecision - one party does not pay mediation fee, dispute is ruled in favor of paying party
      * Dismissed - case is invalid and Marketplace reverts to original project conditions
-     * SettledExternally - case was settled by change order in Marketplace and arbitration does not progress
+     * SettledExternally - case was settled by change order in Marketplace and mediation does not progress
      */
     enum Phase {
-        Discovery,
-        JurySelection, 
+        Disclosure,
+        PanelSelection, 
         Voting, 
-        Ruling, 
-        Verdict,
-        DefaultJudgement, 
+        Determination, 
+        Decision,
+        DefaultDecision, 
         Dismissed, 
         SettledExternally 
     }
 
-    struct Petition {
-        uint256 petitionId;
+    struct Dispute {
+        uint256 disputeId;
         uint256 projectId;
         uint256 adjustedProjectFee;
         uint256 providerStakeForfeit;
-        address plaintiff;
-        address defendant;
-        uint256 arbitrationFee;
-        bool feePaidPlaintiff;
-        bool feePaidDefendant;
-        uint256 discoveryStart;
+        address claimant;
+        address respondent;
+        uint256 mediationFee;
+        bool feePaidClaimant;
+        bool feePaidRespondent;
+        uint256 disclosureStart;
         uint256 selectionStart;
         uint256 votingStart;
-        uint256 rulingStart;
-        uint256 verdictRenderedDate;
+        uint256 determinationStart;
+        uint256 decisionRenderedDate;
         bool isAppeal;
-        bool petitionGranted;
+        bool granted;
         Phase phase;
         string[] evidence;
     }

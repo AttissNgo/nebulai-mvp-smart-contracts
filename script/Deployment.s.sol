@@ -10,8 +10,8 @@ import "../src/NebulaiTestTokenFaucet.sol";
 
 import "../src/Governor.sol";
 import "../src/Whitelist.sol";
-import "../src/JuryPool.sol";
-import "../src/Court.sol";
+import "../src/MediatorPool.sol";
+import "../src/MediationService.sol";
 import "../src/EscrowFactory.sol";
 import "../src/Marketplace.sol";
 
@@ -25,9 +25,9 @@ contract DeploymentLocal is Script {
     NebulaiTestTokenFaucet public testToken;
     Governor public governor;
     Whitelist public whitelist;
-    JuryPool public juryPool;
-    uint256 public minimumJurorStake = 20 ether;
-    Court public court;
+    MediatorPool public mediatorPool;
+    uint256 public minimumMediatorStake = 20 ether;
+    MediationService public mediationService;
     EscrowFactory public escrowFactory;
     Marketplace public marketplace;
 
@@ -106,15 +106,15 @@ contract DeploymentLocal is Script {
         // deploy whitelist
         whitelist = new Whitelist(address(governor));
         // deploy jury pool
-        juryPool = new JuryPool(address(governor), address(whitelist), minimumJurorStake);
+        mediatorPool = new MediatorPool(address(governor), address(whitelist), minimumMediatorStake);
         // calculate future marketplace address
         uint64 nonce = vm.getNonce(vm.addr(pk_0));
         address predictedMarketplace = computeCreateAddress(vm.addr(pk_0), nonce + 2);
         console.log(predictedMarketplace);
-        // deploy court
-        court = new Court(
+        // deploy mediationService
+        mediationService = new MediationService(
             address(governor), 
-            address(juryPool),
+            address(mediatorPool),
             address(vrf),
             subscriptionId,
             predictedMarketplace ////////////////
@@ -127,7 +127,7 @@ contract DeploymentLocal is Script {
         marketplace = new Marketplace(
             address(governor), 
             address(whitelist), 
-            address(court), 
+            address(mediationService), 
             address(escrowFactory),
             approvedTokens
         );
@@ -157,8 +157,8 @@ contract DeploymentLocal is Script {
         string memory testTokenAddr = vm.serializeAddress(obj1, "TestToken", address(testToken));
         string memory govAddr = vm.serializeAddress(obj1, "GovernorAddress", address(governor));
         string memory whitelistAddr = vm.serializeAddress(obj1, "WhitelistAddress", address(whitelist));
-        string memory juryPoolAddr = vm.serializeAddress(obj1, "JuryPoolAddress", address(juryPool));
-        string memory courtAddr = vm.serializeAddress(obj1, "CourtAddress", address(court));
+        string memory mediatorPoolAddr = vm.serializeAddress(obj1, "MediatorPoolAddress", address(mediatorPool));
+        string memory mediationServiceAddr = vm.serializeAddress(obj1, "MediationServiceAddress", address(mediationService));
         string memory escrowFactoryAddr = vm.serializeAddress(obj1, "EscrowFactoryAddress", address(escrowFactory));
         string memory marketplaceAddr = vm.serializeAddress(obj1, "MarketplaceAddress", address(marketplace));
 
@@ -168,16 +168,16 @@ contract DeploymentLocal is Script {
         vm.writeJson(testTokenAddr, "./deploymentInfo.json", valueKey);
         vm.writeJson(govAddr, "./deploymentInfo.json", valueKey);
         vm.writeJson(whitelistAddr, "./deploymentInfo.json", valueKey);
-        vm.writeJson(juryPoolAddr, "./deploymentInfo.json", valueKey);
-        vm.writeJson(courtAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(mediatorPoolAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(mediationServiceAddr, "./deploymentInfo.json", valueKey);
         vm.writeJson(escrowFactoryAddr, "./deploymentInfo.json", valueKey);
         vm.writeJson(marketplaceAddr, "./deploymentInfo.json", valueKey);
 
-        // register jurors
-        uint256 jurorMinStake = juryPool.minimumStake();
+        // register mediators
+        uint256 mediatorMinStake = mediatorPool.minimumStake();
         for(uint i; i < anvilPKs.length; ++i) {
             vm.startBroadcast(anvilPKs[i]);
-            juryPool.registerAsJuror{value: jurorMinStake}();
+            mediatorPool.registerAsMediator{value: mediatorMinStake}();
             vm.stopBroadcast();
         }
     }
@@ -188,9 +188,9 @@ contract DeploymentMumbai is Script {
     NebulaiTestTokenFaucet public testToken;
     Governor public governor;
     Whitelist public whitelist;
-    JuryPool public juryPool;
-    uint256 public minimumJurorStake = 1 ether;
-    Court public court;
+    MediatorPool public mediatorPool;
+    uint256 public minimumMediatorStake = 1 ether;
+    MediationService public mediationService;
     EscrowFactory public escrowFactory;
     Marketplace public marketplace;
 
@@ -226,15 +226,15 @@ contract DeploymentMumbai is Script {
         // deploy whitelist
         whitelist = new Whitelist(address(governor));
         // deploy jury pool
-        juryPool = new JuryPool(address(governor), address(whitelist), minimumJurorStake);
+        mediatorPool = new MediatorPool(address(governor), address(whitelist), minimumMediatorStake);
         // calculate future marketplace address
         uint64 nonce = vm.getNonce(vm.addr(pk_0));
         address predictedMarketplace = computeCreateAddress(vm.addr(pk_0), nonce + 2);
         console.log(predictedMarketplace);
-        // deploy court
-        court = new Court(
+        // deploy mediationService
+        mediationService = new MediationService(
             address(governor), 
-            address(juryPool),
+            address(mediatorPool),
             vrfMumbai,
             subscriptionId,
             predictedMarketplace 
@@ -246,7 +246,7 @@ contract DeploymentMumbai is Script {
         marketplace = new Marketplace(
             address(governor), 
             address(whitelist), 
-            address(court), 
+            address(mediationService), 
             address(escrowFactory),
             approvedTokens
         );
@@ -259,16 +259,16 @@ contract DeploymentMumbai is Script {
         string memory testTokenAddr = vm.serializeAddress(obj1, "TestToken", address(testToken));
         string memory govAddr = vm.serializeAddress(obj1, "GovernorAddress", address(governor));
         string memory whitelistAddr = vm.serializeAddress(obj1, "WhitelistAddress", address(whitelist));
-        string memory juryPoolAddr = vm.serializeAddress(obj1, "JuryPoolAddress", address(juryPool));
-        string memory courtAddr = vm.serializeAddress(obj1, "CourtAddress", address(court));
+        string memory mediatorPoolAddr = vm.serializeAddress(obj1, "MediatorPoolAddress", address(mediatorPool));
+        string memory mediationServiceAddr = vm.serializeAddress(obj1, "MediationServiceAddress", address(mediationService));
         string memory escrowFactoryAddr = vm.serializeAddress(obj1, "EscrowFactoryAddress", address(escrowFactory));
         string memory marketplaceAddr = vm.serializeAddress(obj1, "MarketplaceAddress", address(marketplace));
 
         vm.writeJson(testTokenAddr, "./deploymentInfo.json", valueKey);
         vm.writeJson(govAddr, "./deploymentInfo.json", valueKey);
         vm.writeJson(whitelistAddr, "./deploymentInfo.json", valueKey);
-        vm.writeJson(juryPoolAddr, "./deploymentInfo.json", valueKey);
-        vm.writeJson(courtAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(mediatorPoolAddr, "./deploymentInfo.json", valueKey);
+        vm.writeJson(mediationServiceAddr, "./deploymentInfo.json", valueKey);
         vm.writeJson(escrowFactoryAddr, "./deploymentInfo.json", valueKey);
         vm.writeJson(marketplaceAddr, "./deploymentInfo.json", valueKey);
     }

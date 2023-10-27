@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./Interfaces/IWhitelist.sol";
 import "./Interfaces/IEscrow.sol";
-import "./Interfaces/ICourt.sol";
+import "./Interfaces/IMediationService.sol";
 import "./DataStructuresLibrary.sol";
 
 interface IEscrowFactory {
@@ -17,7 +17,7 @@ interface IEscrowFactory {
         address _paymentToken,
         uint256 _projectFee,
         uint256 _providerStake,
-        address _court,
+        address _mediationService,
         string memory _detailsURI
     ) external returns (address); 
 }
@@ -27,7 +27,7 @@ contract Marketplace is DataStructuresLibrary {
 
     address public immutable GOVERNOR;
     IWhitelist public immutable WHITELIST;
-    ICourt public immutable COURT;
+    IMediationService public immutable MEDIATION_SERVICE;
     IEscrowFactory public immutable ESCROW_FACTORY;
 
     /**
@@ -64,9 +64,9 @@ contract Marketplace is DataStructuresLibrary {
     mapping(uint256 => ChangeOrder[]) private changeOrders; // only one active Change Order per Project ID is possible
 
     /**
-     * @dev Project ID mapped to Petition ID in Court smart contract
+     * @dev Project ID mapped to Dispute ID in MediationService smart contract
      */
-    mapping(uint256 => uint256) private arbitrationCases; 
+    mapping(uint256 => uint256) private mediationCases; 
 
     /**
      * @notice time to approve a Change Order after it is created
@@ -74,7 +74,7 @@ contract Marketplace is DataStructuresLibrary {
     uint24 public constant CHANGE_ORDER_PERIOD = 7 days;
 
     /**
-     * @notice time to appeal a Court decision after the verdict has been rendered
+     * @notice time to appeal a MediationService decision after the decision has been rendered
      */
     uint24 public constant APPEAL_PERIOD = 7 days;
 
@@ -88,15 +88,15 @@ contract Marketplace is DataStructuresLibrary {
     event ProjectCompleted(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectApproved(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectChallenged(uint256 indexed projectId, address indexed buyer, address indexed provider);
-    event ProjectDisputed(uint256 indexed projectId, address indexed buyer, address indexed provider, uint256 petitionId);
-    event ProjectAppealed(uint256 indexed projectId, uint256 indexed petitionId, address appealedBy);
+    event ProjectDisputed(uint256 indexed projectId, address indexed buyer, address indexed provider, uint256 disputeId);
+    event ProjectAppealed(uint256 indexed projectId, uint256 indexed disputeId, address appealedBy);
     event DelinquentPayment(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ChangeOrderProposed(uint256 indexed projectId);
     event ChangeOrderApproved(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ChangeOrderRetracted(uint256 indexed projectId, address indexed retractedBy);
-    event ResolvedByCourtOrder(uint256 indexed projectId, uint256 indexed petitionId);
-    event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed petitionId);
-    event SettlementProposed(uint256 indexed projectId, uint256 indexed petitionId);
+    event ResolvedByMediation(uint256 indexed projectId, uint256 indexed disputeId);
+    event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed disputeId);
+    event SettlementProposed(uint256 indexed projectId, uint256 indexed disputeId);
     event CommissionFeeReceived(uint256 indexed projectId, uint256 commissionAmount, address paymentToken);
     event FeesWithdrawnERC20(address recipient, address token, uint256 amount);
     event FeesWithdrawnNative(address recipient, uint256 amount);
@@ -136,15 +136,15 @@ contract Marketplace is DataStructuresLibrary {
     error Marketplace__AlreadyApprovedChangeOrder();
     error Marketplace__ChangeOrderPeriodStillActive();
     error Marketplace__InvalidSettlement();
-    // arbitration
+    // mediation
     error Marketplace__ProjectCannotBeDisputed();
     error Marketplace__ProjectIsNotDisputed();
-    error Marketplace__CourtHasNotRuled();
+    error Marketplace__MediationServiceHasNotRuled();
     error Marketplace__AppealPeriodOver();
     error Marketplace__AppealPeriodNotOver();
     error Marketplace__OnlyNonPrevailingParty();
-    error Marketplace__CourtHasNotDismissedCase();
-    error Marketplace__CourtCaseAlreadyInitiated();
+    error Marketplace__MediationServiceHasNotDismissedCase();
+    error Marketplace__MediationServiceCaseAlreadyInitiated();
     
     modifier onlyUser() {
         if(!WHITELIST.isApproved(msg.sender)) revert Marketplace__OnlyUser();
@@ -159,14 +159,14 @@ contract Marketplace is DataStructuresLibrary {
     constructor(
         address _governor,
         address _whitelist,
-        address _court,
+        address _mediationService,
         address _escrowFactory,
         address[] memory _approvedTokens
     )
     {
         GOVERNOR = _governor;
         WHITELIST = IWhitelist(_whitelist);
-        COURT = ICourt(_court);
+        MEDIATION_SERVICE = IMediationService(_mediationService);
         ESCROW_FACTORY = IEscrowFactory(_escrowFactory);
         for(uint i = 0; i < _approvedTokens.length; ++i) {
             _approveToken(_approvedTokens[i]);
@@ -211,7 +211,7 @@ contract Marketplace is DataStructuresLibrary {
             _paymentToken,
             _projectFee,
             _providerStake,
-            address(COURT),
+            address(MEDIATION_SERVICE),
             _detailsURI
         );
         p.paymentToken = _paymentToken;
@@ -384,14 +384,14 @@ contract Marketplace is DataStructuresLibrary {
     }
 
     ///////////////////////
-    ///   ARBITRATION   ///
+    ///   MEDIATION   ///
     ///////////////////////
 
     /**
-     * @notice initiates arbitration by creating a Petition in Court contract
+     * @notice initiates mediation by creating a Dispute in MediationService contract
      * @notice can only be called after a Change Order has failed to be approved within CHANGE_ORDER_PERIOD
      * @dev deletes existing (non-approved) Change Order
-     * @return petitionID identifier of Petition in Court contract
+     * @return disputeID identifier of Dispute in MediationService contract
      */
     function disputeProject(
         uint256 _projectId,
@@ -414,91 +414,91 @@ contract Marketplace is DataStructuresLibrary {
 
         if(_adjustedProjectFee > p.projectFee) revert Marketplace__AdjustedFeeExceedsProjectFee();
         if(_providerStakeForfeit > p.providerStake) revert Marketplace__ForfeitExceedsProviderStake();
-        uint256 petitionId = COURT.createPetition(
+        uint256 disputeId = MEDIATION_SERVICE.createDispute(
             p.projectId,
             _adjustedProjectFee,
             _providerStakeForfeit,
             (msg.sender == p.buyer) ? p.buyer : p.provider,
             (msg.sender == p.buyer) ? p.provider : p.buyer
         );
-        arbitrationCases[_projectId] = petitionId;
-        emit ProjectDisputed(p.projectId, p.buyer, p.provider, petitionId);
-        return petitionId;
+        mediationCases[_projectId] = disputeId;
+        emit ProjectDisputed(p.projectId, p.buyer, p.provider, disputeId);
+        return disputeId;
     }
 
     /**
-     * @notice creates a new Petition in Court contract with same details of original arbitration case
-     * @notice can only called between rendering of original verdict and end of APPEAL_PERIOD
-     * @return petitionID identifier of Petition in Court contract
+     * @notice creates a new Dispute in MediationService contract with same details of original mediation case
+     * @notice can only called between rendering of original decision and end of APPEAL_PERIOD
+     * @return disputeID identifier of Dispute in MediationService contract
      */
-    function appealRuling(uint256 _projectId) external returns (uint256) {
+    function appealDetermination(uint256 _projectId) external returns (uint256) {
         Project storage p = projects[_projectId];
         if(msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
         if(p.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
-        Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
-        if(petition.phase != Phase.Verdict) revert Marketplace__CourtHasNotRuled();
-        if(block.timestamp >= petition.verdictRenderedDate + APPEAL_PERIOD) revert Marketplace__AppealPeriodOver();
+        Dispute memory dispute = MEDIATION_SERVICE.getDispute(mediationCases[_projectId]);
+        if(dispute.phase != Phase.Decision) revert Marketplace__MediationServiceHasNotRuled();
+        if(block.timestamp >= dispute.decisionRenderedDate + APPEAL_PERIOD) revert Marketplace__AppealPeriodOver();
         p.status = Status.Appealed;
-        uint256 petitionId = COURT.appeal(_projectId);
-        arbitrationCases[_projectId] = petitionId;
-        emit ProjectAppealed(_projectId, petitionId, msg.sender);
-        return petitionId;
+        uint256 disputeId = MEDIATION_SERVICE.appeal(_projectId);
+        mediationCases[_projectId] = disputeId;
+        emit ProjectAppealed(_projectId, disputeId, msg.sender);
+        return disputeId;
     }
 
     /**
-     * @notice Project is closed and Escrow releases funds according to Petition in Court contract
+     * @notice Project is closed and Escrow releases funds according to Dispute in MediationService contract
      * @notice only non-prevailing party may waive the appeal
      */
     function waiveAppeal(uint256 _projectId) external {
         Project storage project = projects[_projectId];
         if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
-        Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
-        if(petition.phase != Phase.Verdict) revert Marketplace__CourtHasNotRuled();
-        if(petition.petitionGranted) {
-            if(msg.sender != petition.defendant) revert Marketplace__OnlyNonPrevailingParty();
+        Dispute memory dispute = MEDIATION_SERVICE.getDispute(mediationCases[_projectId]);
+        if(dispute.phase != Phase.Decision) revert Marketplace__MediationServiceHasNotRuled();
+        if(dispute.granted) {
+            if(msg.sender != dispute.respondent) revert Marketplace__OnlyNonPrevailingParty();
         } else {
-            if(msg.sender != petition.plaintiff) revert Marketplace__OnlyNonPrevailingParty();
+            if(msg.sender != dispute.claimant) revert Marketplace__OnlyNonPrevailingParty();
         }
-        project.status = Status.Resolved_CourtOrder;
-        emit ResolvedByCourtOrder(project.projectId, petition.petitionId);
+        project.status = Status.Resolved_Mediation;
+        emit ResolvedByMediation(project.projectId, dispute.disputeId);
     }
 
     /**
-     * @notice Project is closed and Escrow releases funds according to Petition in Court contract
-     * @notice if Petition is not appeal, user must wait until after APPEAL_PERIOD elapses
+     * @notice Project is closed and Escrow releases funds according to Dispute in MediationService contract
+     * @notice if Dispute is not appeal, user must wait until after APPEAL_PERIOD elapses
      */
-    function resolveByCourtOrder(uint256 _projectId) public {
+    function resolveByMediation(uint256 _projectId) public {
         Project storage project = projects[_projectId];
         if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
         if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
-        Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
-        if(petition.phase != Phase.Verdict && petition.phase != Phase.DefaultJudgement) {
-            revert Marketplace__CourtHasNotRuled();
+        Dispute memory dispute = MEDIATION_SERVICE.getDispute(mediationCases[_projectId]);
+        if(dispute.phase != Phase.Decision && dispute.phase != Phase.DefaultDecision) {
+            revert Marketplace__MediationServiceHasNotRuled();
         }
-        if(!petition.isAppeal) {
-            if(block.timestamp < petition.verdictRenderedDate + APPEAL_PERIOD) revert Marketplace__AppealPeriodNotOver();
+        if(!dispute.isAppeal) {
+            if(block.timestamp < dispute.decisionRenderedDate + APPEAL_PERIOD) revert Marketplace__AppealPeriodNotOver();
         }
-        project.status = Status.Resolved_CourtOrder;
-        emit ResolvedByCourtOrder(_projectId, petition.petitionId);
+        project.status = Status.Resolved_Mediation;
+        emit ResolvedByMediation(_projectId, dispute.disputeId);
     }
 
     /**
      * @notice Project is closed and Escrow releases funds according to Project details
-     * @notice Petition can be dismissed in Court contract if neither party pays arbitration fee
+     * @notice Dispute can be dismissed in MediationService contract if neither party pays mediation fee
      */
     function resolveDismissedCase(uint256 _projectId) public {
         Project storage project = projects[_projectId];
         if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
         if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
-        Petition memory petition = COURT.getPetition(arbitrationCases[_projectId]);
-        if(petition.phase != Phase.Dismissed) revert Marketplace__CourtHasNotDismissedCase();
-        project.status = Status.Resolved_ArbitrationDismissed;
-        emit ResolvedByDismissedCase(_projectId, petition.petitionId);
+        Dispute memory dispute = MEDIATION_SERVICE.getDispute(mediationCases[_projectId]);
+        if(dispute.phase != Phase.Dismissed) revert Marketplace__MediationServiceHasNotDismissedCase();
+        project.status = Status.Resolved_MediationDismissed;
+        emit ResolvedByDismissedCase(_projectId, dispute.disputeId);
     }
 
     /**
-     * @notice creates a new Change Order during arbitration
-     * @notice can only be created during Discovery phase of court petition
+     * @notice creates a new Change Order during mediation
+     * @notice can only be created during Disclosure phase of mediationService dispute
      * @param _settlementDetailsURI details of Change Order on distributed file system
      */
     function proposeSettlement( 
@@ -512,15 +512,15 @@ contract Marketplace is DataStructuresLibrary {
         Project memory project = projects[_projectId];
         if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
         if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
-        Petition memory petition = COURT.getPetition(getArbitrationPetitionId(project.projectId));
-        if(petition.phase != Phase.Discovery) revert Marketplace__CourtCaseAlreadyInitiated();
+        Dispute memory dispute = MEDIATION_SERVICE.getDispute(getDisputeId(project.projectId));
+        if(dispute.phase != Phase.Disclosure) revert Marketplace__MediationServiceCaseAlreadyInitiated();
         _proposeChangeOrder(
             _projectId,
             _adjustedProjectFee,
             _providerStakeForfeit,
             _settlementDetailsURI
         );
-        emit SettlementProposed(_projectId, getArbitrationPetitionId(_projectId));
+        emit SettlementProposed(_projectId, getDisputeId(_projectId));
     }
 
     ////////////////////////
@@ -592,12 +592,12 @@ contract Marketplace is DataStructuresLibrary {
     }
     
     /**
-     * @dev updates Petition phase in Court contract if Change Order is settlement
+     * @dev updates Dispute phase in MediationService contract if Change Order is settlement
      */
     function _validSettlement(uint256 _projectId) private {
-        Petition memory petition = COURT.getPetition(getArbitrationPetitionId(_projectId));
-        if(petition.phase != Phase.Discovery) revert Marketplace__ChangeOrderNotValid();
-        COURT.settledExternally(petition.petitionId);
+        Dispute memory dispute = MEDIATION_SERVICE.getDispute(getDisputeId(_projectId));
+        if(dispute.phase != Phase.Disclosure) revert Marketplace__ChangeOrderNotValid();
+        MEDIATION_SERVICE.settledExternally(dispute.disputeId);
     }
 
     ////////////////
@@ -717,8 +717,8 @@ contract Marketplace is DataStructuresLibrary {
         return false;
     }
 
-    function getArbitrationPetitionId(uint256 projectId) public view returns (uint256) {
-        return arbitrationCases[projectId];
+    function getDisputeId(uint256 projectId) public view returns (uint256) {
+        return mediationCases[projectId];
     }
 
     function getErc20Tokens() public view returns (address[] memory) {

@@ -15,7 +15,7 @@ contract MarketplaceChangeOrderTest is Test, TestSetup {
     function setUp() public {
         _setUp();
         _whitelistUsers();
-        _registerJurors();
+        _registerMediators();
         _initializeTestProjects();
     }
 
@@ -157,8 +157,8 @@ contract MarketplaceChangeOrderTest is Test, TestSetup {
         );
         // case not in discovery
         project = marketplace.getProject(id_challenged_MATIC);
-        _payArbitrationFeesAndDrawJurors(project.projectId);
-        vm.expectRevert(Marketplace.Marketplace__CourtCaseAlreadyInitiated.selector);
+        _payMediationFeesAndDrawMediators(project.projectId);
+        vm.expectRevert(Marketplace.Marketplace__MediationServiceCaseAlreadyInitiated.selector);
         vm.prank(project.buyer);
         marketplace.proposeSettlement(
             project.projectId,

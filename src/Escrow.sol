@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./Interfaces/IMarketplace.sol";
-import "./Interfaces/ICourt.sol";
+import "./Interfaces/IMediationService.sol";
 import "./DataStructuresLibrary.sol";
 
 contract Escrow is DataStructuresLibrary {
@@ -15,7 +15,7 @@ contract Escrow is DataStructuresLibrary {
     address public immutable PAYMENT_TOKEN;
     uint256 public immutable PROJECT_FEE;
     uint256 public immutable PROVIDER_STAKE;
-    address public immutable COURT;
+    address public immutable MEDIATION_SERVICE;
 
     bool public providerHasStaked = false;
     bool private buyerHasWithdrawn = false;
@@ -42,7 +42,7 @@ contract Escrow is DataStructuresLibrary {
         address _paymentToken,
         uint256 _projectFee,
         uint256 _providerStake,
-        address _court
+        address _mediationService
     )
     {
         MARKETPLACE = _marketplace;
@@ -52,7 +52,7 @@ contract Escrow is DataStructuresLibrary {
         PAYMENT_TOKEN = _paymentToken;
         PROJECT_FEE = _projectFee;
         PROVIDER_STAKE = _providerStake;
-        COURT = _court;
+        MEDIATION_SERVICE = _mediationService;
     }
 
     receive() external payable {}
@@ -111,9 +111,9 @@ contract Escrow is DataStructuresLibrary {
             status == Status.Cancelled ||
             status == Status.Approved ||
             status == Status.Resolved_ChangeOrder ||
-            status == Status.Resolved_CourtOrder ||
+            status == Status.Resolved_Mediation ||
             status == Status.Resolved_DelinquentPayment ||
-            status == Status.Resolved_ArbitrationDismissed
+            status == Status.Resolved_MediationDismissed
         ) return true;
         return false;
     }
@@ -132,7 +132,7 @@ contract Escrow is DataStructuresLibrary {
         else if(
             status == Status.Approved || 
             status == Status.Resolved_DelinquentPayment ||
-            status == Status.Resolved_ArbitrationDismissed
+            status == Status.Resolved_MediationDismissed
         ) {
             if(_user == PROVIDER) {
                 commissionFee = calculateCommissionFee(PROJECT_FEE);
@@ -148,19 +148,19 @@ contract Escrow is DataStructuresLibrary {
                 amount = (changeOrder.adjustedProjectFee - commissionFee) + (PROVIDER_STAKE - changeOrder.providerStakeForfeit);
             }
         } 
-        else if(status == Status.Resolved_CourtOrder) {
-            uint256 petitionId = IMarketplace(MARKETPLACE).getArbitrationPetitionId(PROJECT_ID);
-            Petition memory petition = ICourt(COURT).getPetition(petitionId);
-            if(petition.petitionGranted) {
+        else if(status == Status.Resolved_Mediation) {
+            uint256 disputeId = IMarketplace(MARKETPLACE).getDisputeId(PROJECT_ID);
+            Dispute memory dispute = IMediationService(MEDIATION_SERVICE).getDispute(disputeId);
+            if(dispute.granted) {
                 if(_user == BUYER) {
-                    amount = (PROJECT_FEE - petition.adjustedProjectFee) + petition.providerStakeForfeit;
+                    amount = (PROJECT_FEE - dispute.adjustedProjectFee) + dispute.providerStakeForfeit;
                 } else if(_user == PROVIDER) {
-                    if((petition.adjustedProjectFee - petition.providerStakeForfeit) > 0) {
-                         commissionFee = calculateCommissionFee(petition.adjustedProjectFee);
+                    if((dispute.adjustedProjectFee - dispute.providerStakeForfeit) > 0) {
+                         commissionFee = calculateCommissionFee(dispute.adjustedProjectFee);
                     }
-                    amount = (petition.adjustedProjectFee - commissionFee) + (PROVIDER_STAKE - petition.providerStakeForfeit);
+                    amount = (dispute.adjustedProjectFee - commissionFee) + (PROVIDER_STAKE - dispute.providerStakeForfeit);
                 }
-            } else { // petition NOT granted
+            } else { // dispute NOT granted
                 if(_user == PROVIDER) {
                     commissionFee = calculateCommissionFee(PROJECT_FEE);
                     amount = (PROJECT_FEE - commissionFee) + PROVIDER_STAKE;

@@ -16,18 +16,18 @@ contract MarketplaceProjectTest is Test, TestSetup {
     event ProjectCompleted(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectApproved(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectChallenged(uint256 indexed projectId, address indexed buyer, address indexed provider);
-    event ProjectDisputed(uint256 indexed projectId, address indexed buyer, address indexed provider, uint256 petitionId);
+    event ProjectDisputed(uint256 indexed projectId, address indexed buyer, address indexed provider, uint256 disputeId);
     event DelinquentPayment(uint256 indexed projectId, address indexed buyer, address indexed provider);
-    event ProjectAppealed(uint256 indexed projectId, uint256 indexed petitionId, address appealedBy);
-    event ResolvedByCourtOrder(uint256 indexed projectId, uint256 indexed petitionId);
-    event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed petitionId);
-    event SettlementProposed(uint256 indexed projectId, uint256 indexed petitionId);
+    event ProjectAppealed(uint256 indexed projectId, uint256 indexed disputeId, address appealedBy);
+    event ResolvedByMediation(uint256 indexed projectId, uint256 indexed disputeId);
+    event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed disputeId);
+    event SettlementProposed(uint256 indexed projectId, uint256 indexed disputeId);
     // event FeesWithdrawn(address recipient, uint256 nativeAmount, address[] erc20Tokens, uint256[] erc20Amounts);
 
     function setUp() public {
         _setUp();
         _whitelistUsers();
-        _registerJurors();
+        _registerMediators();
         _initializeTestProjects();
     }
 
@@ -555,10 +555,10 @@ contract MarketplaceProjectTest is Test, TestSetup {
         Project memory project = marketplace.getProject(id_challenged_ERC20);
         vm.warp(block.timestamp + marketplace.CHANGE_ORDER_PERIOD() + 1);
         assertEq(marketplace.activeChangeOrder(project.projectId), true);
-        assertEq(marketplace.getArbitrationPetitionId(project.projectId), 0);
+        assertEq(marketplace.getDisputeId(project.projectId), 0);
 
         vm.expectEmit(true, true, true, true);
-        emit ProjectDisputed(project.projectId, project.buyer, project.provider, court.petitionIds() + 1);
+        emit ProjectDisputed(project.projectId, project.buyer, project.provider, mediationService.disputeIds() + 1);
         vm.prank(project.provider);
         marketplace.disputeProject(
             project.projectId,
@@ -570,8 +570,8 @@ contract MarketplaceProjectTest is Test, TestSetup {
         assertEq(uint(project.status), uint(Status.Disputed));
         // no longer has active change order
         assertEq(marketplace.activeChangeOrder(project.projectId), false);
-        // has petition Id
-        assertEq(marketplace.getArbitrationPetitionId(project.projectId), court.petitionIds());
+        // has dispute Id
+        assertEq(marketplace.getDisputeId(project.projectId), mediationService.disputeIds());
     }
 
     function test_disputeProject_revert() public {

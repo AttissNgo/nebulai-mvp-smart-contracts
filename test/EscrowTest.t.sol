@@ -18,9 +18,9 @@ contract EscrowTest is Test, TestSetup {
     function setUp() public {
         _setUp();
         _whitelistUsers();
-        _registerJurors();
+        _registerMediators();
         _initializeTestProjects();
-        _initializeArbitrationProjects();
+        _initializeMediationProjects();
     }
 
     //////////////////////
@@ -40,7 +40,7 @@ contract EscrowTest is Test, TestSetup {
             assertEq(project.paymentToken, escrow.PAYMENT_TOKEN());
             assertEq(project.projectFee, escrow.PROJECT_FEE());
             assertEq(project.providerStake, escrow.PROVIDER_STAKE());
-            assertEq(address(court), escrow.COURT());
+            assertEq(address(mediationService), escrow.MEDIATION_SERVICE());
             // correct balance
             assertEq(escrow.providerHasStaked(), false);
             assertEq(_getBalance(address(escrow), project.paymentToken), escrow.PROJECT_FEE());
@@ -205,22 +205,22 @@ contract EscrowTest is Test, TestSetup {
         assertEq(_getBalance(address(escrow), project.paymentToken), 0);
     }
 
-    function test_withdraw_court_order_granted() public {
-        _discoveryToResolved(id_arbitration_discovery_ERC20, true);
-        _discoveryToResolved(id_arbitration_discovery_MATIC, true);
-        uint256[2] memory grantedProjects = [id_arbitration_discovery_ERC20, id_arbitration_discovery_MATIC];
+    function test_withdraw_mediationService_order_granted() public {
+        _disclosureToResolved(id_mediation_disclosure_ERC20, true);
+        _disclosureToResolved(id_mediation_disclosure_MATIC, true);
+        uint256[2] memory grantedProjects = [id_mediation_disclosure_ERC20, id_mediation_disclosure_MATIC];
         for(uint i; i < grantedProjects.length; ++i) {
             Project memory project = marketplace.getProject(grantedProjects[i]);
-            Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
+            Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(project.projectId));
             IEscrow escrow = IEscrow(project.escrow);
             (uint escrowBefore, uint buyerBefore, uint providerBefore, uint marketplaceBefore) = _snapshotBeforeBalances(project.projectId);
-            assertEq(petition.plaintiff, project.buyer); // buyer is winner
+            assertEq(dispute.claimant, project.buyer); // buyer is winner
             vm.prank(project.provider);
             marketplace.waiveAppeal(project.projectId);
 
             // buyer withdraw
             (uint256 amountDue, uint256 commission) = escrow.amountDue(project.buyer);
-            assertEq(amountDue, project.projectFee - petition.adjustedProjectFee + petition.providerStakeForfeit);
+            assertEq(amountDue, project.projectFee - dispute.adjustedProjectFee + dispute.providerStakeForfeit);
             vm.prank(project.buyer);
             escrow.withdraw();
             assertEq(_getBalance(project.buyer, project.paymentToken), buyerBefore + amountDue);
@@ -228,8 +228,8 @@ contract EscrowTest is Test, TestSetup {
 
             // provider withdraw
             (amountDue, commission) = escrow.amountDue(project.provider);
-            assertEq(commission, petition.adjustedProjectFee/100);
-            assertEq(amountDue, petition.adjustedProjectFee - commission + project.providerStake - petition.providerStakeForfeit);
+            assertEq(commission, dispute.adjustedProjectFee/100);
+            assertEq(amountDue, dispute.adjustedProjectFee - commission + project.providerStake - dispute.providerStakeForfeit);
             vm.prank(project.provider);
             escrow.withdraw();
             assertEq(_getBalance(project.provider, project.paymentToken), providerBefore + amountDue);
@@ -238,16 +238,16 @@ contract EscrowTest is Test, TestSetup {
         }
     }
 
-    function test_withdraw_court_order_denied() public {
-        _discoveryToResolved(id_arbitration_discovery_ERC20, false);
-        _discoveryToResolved(id_arbitration_discovery_MATIC, false);
-        uint256[2] memory grantedProjects = [id_arbitration_discovery_ERC20, id_arbitration_discovery_MATIC];
+    function test_withdraw_mediationService_order_denied() public {
+        _disclosureToResolved(id_mediation_disclosure_ERC20, false);
+        _disclosureToResolved(id_mediation_disclosure_MATIC, false);
+        uint256[2] memory grantedProjects = [id_mediation_disclosure_ERC20, id_mediation_disclosure_MATIC];
         for(uint i; i < grantedProjects.length; ++i) {
             Project memory project = marketplace.getProject(grantedProjects[i]);
-            Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
+            Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(project.projectId));
             IEscrow escrow = IEscrow(project.escrow);
             (uint escrowBefore, uint buyerBefore, uint providerBefore, uint marketplaceBefore) = _snapshotBeforeBalances(project.projectId);
-            assertEq(petition.plaintiff, project.buyer); // buyer is loser
+            assertEq(dispute.claimant, project.buyer); // buyer is loser
             vm.prank(project.buyer);
             marketplace.waiveAppeal(project.projectId);
 
@@ -268,15 +268,15 @@ contract EscrowTest is Test, TestSetup {
         }
     }
 
-    function test_withdraw_arbitration_dismissed() public {
+    function test_withdraw_mediation_dismissed() public {
         _disputeProject(id_challenged_ERC20, changeOrderAdjustedProjectFee, changeOrderProviderStakeForfeit);
         _disputeProject(id_challenged_MATIC, changeOrderAdjustedProjectFee, changeOrderProviderStakeForfeit);
         uint256[2] memory dismissedProjects = [id_challenged_ERC20, id_challenged_MATIC];
         for(uint i; i < dismissedProjects.length; ++i) {
             Project memory project = marketplace.getProject(dismissedProjects[i]);
-            Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
-            vm.warp(block.timestamp + court.DISCOVERY_PERIOD() + 1);
-            court.dismissUnpaidCase(petition.petitionId);
+            Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(project.projectId));
+            vm.warp(block.timestamp + mediationService.DISCLOSURE_PERIOD() + 1);
+            mediationService.dismissUnpaidCase(dispute.disputeId);
             vm.prank(project.provider);
             marketplace.resolveDismissedCase(project.projectId);
             IEscrow escrow = IEscrow(project.escrow);
@@ -339,17 +339,17 @@ contract EscrowTest is Test, TestSetup {
 //     uint256 changeOrderProviderStakeForfeit = 10 ether;
 //     string changeOrderDetailsURI = "ipfs://changeOrderUri";
 
-//     // test arbitration
-//     uint256 petitionId;
-//     uint256 arbitrationAdjustedProjectFee = 600 ether;
-//     uint256 arbitrationProviderStakeForfeit = 20 ether;
+//     // test mediation
+//     uint256 disputeId;
+//     uint256 mediationAdjustedProjectFee = 600 ether;
+//     uint256 mediationProviderStakeForfeit = 20 ether;
 //     string[] evidence1 = ["someEvidenceURI", "someOtherEvidenceURI"];
 //     string[] evidence2 = ["someEvidenceURI2", "someOtherEvidenceURI2"];
 
 //     function setUp() public {
 //         _setUp();
 //         _whitelistUsers();
-//         _registerJurors();
+//         _registerMediators();
 //         dueDate = block.timestamp + 30 days;
 //         testProjectId_MATIC = _createProject_MATIC();
 //         testProjectId_ERC20 = _createProjectERC20();
@@ -421,92 +421,92 @@ contract EscrowTest is Test, TestSetup {
 //         );
 //     }
 
-//     function _projectWithArbitration(uint256 _projectId) public {
+//     function _projectWithMediation(uint256 _projectId) public {
 //         _projectWithChangeOrder(_projectId);
 //         Marketplace.Project memory project = marketplace.getProject(_projectId);
 //             // warp past change order period
 //         vm.warp(block.timestamp + marketplace.CHANGE_ORDER_PERIOD() + 1);
 //         vm.prank(project.buyer);
-//         petitionId = marketplace.disputeProject(
+//         disputeId = marketplace.disputeProject(
 //             project.projectId,
-//             arbitrationAdjustedProjectFee,
-//             arbitrationProviderStakeForfeit
+//             mediationAdjustedProjectFee,
+//             mediationProviderStakeForfeit
 //         );
 //     }
 
-//     function _confirmedJury() public {
-//         Court.Petition memory petition = court.getPetition(petitionId);
-//             // plaintiff pays
-//         vm.prank(petition.plaintiff);
-//         court.payArbitrationFee{value: petition.arbitrationFee}(petitionId, evidence1);
-//             // defendant pays and jury selection is initiated
+//     function _confirmedPanel() public {
+//         MediationService.Dispute memory dispute = mediationService.getDispute(disputeId);
+//             // claimant pays
+//         vm.prank(dispute.claimant);
+//         mediationService.payMediationFee{value: dispute.mediationFee}(disputeId, evidence1);
+//             // respondent pays and panel selection is initiated
 //         vm.recordLogs();
-//         vm.prank(petition.defendant);
-//         court.payArbitrationFee{value: petition.arbitrationFee}(petitionId, evidence2);
+//         vm.prank(dispute.respondent);
+//         mediationService.payMediationFee{value: dispute.mediationFee}(disputeId, evidence2);
 //         Vm.Log[] memory entries = vm.getRecordedLogs();
 //         uint256 requestId = uint(bytes32(entries[2].data));
-//         vrf.fulfillRandomWords(requestId, address(court));
-//         Court.Jury memory jury = court.getJury(petition.petitionId);
-//         uint256 jurorStake = court.jurorFlatFee();
-//         for(uint i; i < court.jurorsNeeded(petition.petitionId); ++i) {
-//             vm.prank(jury.drawnJurors[i]);
-//             court.acceptCase{value: jurorStake}(petition.petitionId);
+//         vrf.fulfillRandomWords(requestId, address(mediationService));
+//         MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+//         uint256 mediatorStake = mediationService.mediatorFlatFee();
+//         for(uint i; i < mediationService.mediatorsNeeded(dispute.disputeId); ++i) {
+//             vm.prank(panel.drawnMediators[i]);
+//             mediationService.acceptCase{value: mediatorStake}(dispute.disputeId);
 //         }
 //     }
 
-//     function _arbitrationPetitionGranted(uint256 _projectId) public {
-//         _projectWithArbitration(_projectId);
-//         _confirmedJury();
-//             // jurors vote
-//         Court.Petition memory petition = court.getPetition(petitionId);
-//         Court.Jury memory jury = court.getJury(petition.petitionId);
+//     function _mediationGranted(uint256 _projectId) public {
+//         _projectWithMediation(_projectId);
+//         _confirmedPanel();
+//             // mediators vote
+//         MediationService.Dispute memory dispute = mediationService.getDispute(disputeId);
+//         MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
 //         bytes32 commit = keccak256(abi.encodePacked(true, "someSalt"));
-//         vm.prank(jury.confirmedJurors[0]);
-//         court.commitVote(petition.petitionId, commit);
+//         vm.prank(panel.confirmedMediators[0]);
+//         mediationService.commitVote(dispute.disputeId, commit);
 //         commit = keccak256(abi.encodePacked(true, "someSalt"));
-//         vm.prank(jury.confirmedJurors[1]);
-//         court.commitVote(petition.petitionId, commit);
+//         vm.prank(panel.confirmedMediators[1]);
+//         mediationService.commitVote(dispute.disputeId, commit);
 //         commit = keccak256(abi.encodePacked(true, "someSalt"));
-//         vm.prank(jury.confirmedJurors[2]);
-//         court.commitVote(petition.petitionId, commit);
-//             // jurors reveal
-//         vm.prank(jury.confirmedJurors[0]);
-//         court.revealVote(petition.petitionId, true, "someSalt");
-//         vm.prank(jury.confirmedJurors[1]);
-//         court.revealVote(petition.petitionId, true, "someSalt");
-//         vm.prank(jury.confirmedJurors[2]);
-//         court.revealVote(petition.petitionId, true, "someSalt");
-//             // defendant (provider) waives appeal
-//         vm.prank(petition.defendant);
+//         vm.prank(panel.confirmedMediators[2]);
+//         mediationService.commitVote(dispute.disputeId, commit);
+//             // mediators reveal
+//         vm.prank(panel.confirmedMediators[0]);
+//         mediationService.revealVote(dispute.disputeId, true, "someSalt");
+//         vm.prank(panel.confirmedMediators[1]);
+//         mediationService.revealVote(dispute.disputeId, true, "someSalt");
+//         vm.prank(panel.confirmedMediators[2]);
+//         mediationService.revealVote(dispute.disputeId, true, "someSalt");
+//             // respondent (provider) waives appeal
+//         vm.prank(dispute.respondent);
 //         marketplace.waiveAppeal(_projectId);
 //     }
 
-//     function _arbitrationPetitionNotGranted(uint256 _projectId) public {
-//         _projectWithArbitration(_projectId);
-//         _confirmedJury();
-//             // jurors vote
-//         Court.Petition memory petition = court.getPetition(petitionId);
-//         Court.Jury memory jury = court.getJury(petition.petitionId);
+//     function _mediationDisputeNotGranted(uint256 _projectId) public {
+//         _projectWithMediation(_projectId);
+//         _confirmedPanel();
+//             // mediators vote
+//         MediationService.Dispute memory dispute = mediationService.getDispute(disputeId);
+//         MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
 //         bytes32 commit = keccak256(abi.encodePacked(false, "someSalt"));
-//         vm.prank(jury.confirmedJurors[0]);
-//         court.commitVote(petition.petitionId, commit);
+//         vm.prank(panel.confirmedMediators[0]);
+//         mediationService.commitVote(dispute.disputeId, commit);
 //         commit = keccak256(abi.encodePacked(false, "someSalt"));
-//         vm.prank(jury.confirmedJurors[1]);
-//         court.commitVote(petition.petitionId, commit);
+//         vm.prank(panel.confirmedMediators[1]);
+//         mediationService.commitVote(dispute.disputeId, commit);
 //         commit = keccak256(abi.encodePacked(true, "someSalt"));
-//         vm.prank(jury.confirmedJurors[2]);
-//         court.commitVote(petition.petitionId, commit);
-//             // jurors reveal
-//         vm.prank(jury.confirmedJurors[0]);
-//         court.revealVote(petition.petitionId, false, "someSalt");
-//         vm.prank(jury.confirmedJurors[1]);
-//         court.revealVote(petition.petitionId, false, "someSalt");
-//         vm.prank(jury.confirmedJurors[2]);
-//         court.revealVote(petition.petitionId, true, "someSalt");
-//             // appeal period passes and defendant resolves 
+//         vm.prank(panel.confirmedMediators[2]);
+//         mediationService.commitVote(dispute.disputeId, commit);
+//             // mediators reveal
+//         vm.prank(panel.confirmedMediators[0]);
+//         mediationService.revealVote(dispute.disputeId, false, "someSalt");
+//         vm.prank(panel.confirmedMediators[1]);
+//         mediationService.revealVote(dispute.disputeId, false, "someSalt");
+//         vm.prank(panel.confirmedMediators[2]);
+//         mediationService.revealVote(dispute.disputeId, true, "someSalt");
+//             // appeal period passes and respondent resolves 
 //         vm.warp(block.timestamp + marketplace.APPEAL_PERIOD() + 1);
-//         vm.prank(petition.defendant);
-//         marketplace.resolveByCourtOrder(_projectId);
+//         vm.prank(dispute.respondent);
+//         marketplace.resolveByMediation(_projectId);
 //     }
 
 //     function _setBeforeBalances(
@@ -626,9 +626,9 @@ contract EscrowTest is Test, TestSetup {
 //         );
 //     }
 
-//     function test_withdraw_court_order_granted() public {
+//     function test_withdraw_mediationService_order_granted() public {
 //         vm.pauseGasMetering();
-//         _arbitrationPetitionGranted(testProjectId_MATIC);
+//         _mediationGranted(testProjectId_MATIC);
 //         Marketplace.Project memory project = marketplace.getProject(testProjectId_MATIC);
 //         IEscrow escrow = IEscrow(project.escrow);
 //         _setBeforeBalances(project.paymentToken, project.buyer, project.provider, project.escrow);
@@ -640,31 +640,31 @@ contract EscrowTest is Test, TestSetup {
 //         assertEq(buyerBalCurrent, 
 //             buyerBalBefore + 
 //             project.projectFee - 
-//             arbitrationAdjustedProjectFee + 
-//             arbitrationProviderStakeForfeit
+//             mediationAdjustedProjectFee + 
+//             mediationProviderStakeForfeit
 //         );
 //         // provider can withdraw adjusted project fee + stake (- forfeit) - commission
-//         uint256 commissionFee = arbitrationAdjustedProjectFee/100;
+//         uint256 commissionFee = mediationAdjustedProjectFee/100;
 //         vm.prank(project.provider);
 //         escrow.withdraw();
 //         _setCurrentBalances(project.paymentToken, project.buyer, project.provider, project.escrow);
 //         assertEq(providerBalCurrent, 
 //             providerBalBefore + 
-//             arbitrationAdjustedProjectFee + 
+//             mediationAdjustedProjectFee + 
 //             project.providerStake - 
-//             arbitrationProviderStakeForfeit - 
+//             mediationProviderStakeForfeit - 
 //             commissionFee
 //         );
 //     }
 
-//     function test_withdraw_court_order_not_granted() public {
+//     function test_withdraw_mediationService_order_not_granted() public {
 //         vm.pauseGasMetering();
-//         _arbitrationPetitionNotGranted(testProjectId_ERC20);
+//         _mediationDisputeNotGranted(testProjectId_ERC20);
 //         Marketplace.Project memory project = marketplace.getProject(testProjectId_ERC20);
 //         IEscrow escrow = IEscrow(project.escrow);
 //         _setBeforeBalances(project.paymentToken, project.buyer, project.provider, project.escrow);
 //         vm.resumeGasMetering();
-//         // provider (defendant - won case) can withdraw original amount (project fee + stake - commission)
+//         // provider (respondent - won case) can withdraw original amount (project fee + stake - commission)
 //         uint256 commissionFee = project.projectFee/100;
 //         vm.prank(project.provider);
 //         escrow.withdraw();
@@ -676,14 +676,14 @@ contract EscrowTest is Test, TestSetup {
 //         escrow.withdraw();
 //     }
 
-//     function test_withdraw_dismissed_arbitration_case() public {
+//     function test_withdraw_dismissed_mediation_case() public {
 //         vm.pauseGasMetering();
-//         _projectWithArbitration(testProjectId_MATIC);
+//         _projectWithMediation(testProjectId_MATIC);
 //         Marketplace.Project memory project = marketplace.getProject(testProjectId_MATIC);
 //         IEscrow escrow = IEscrow(project.escrow);
-//             // discovery period passes no one pays, case is dismissed 
-//         vm.warp(block.timestamp + court.DISCOVERY_PERIOD() + 1);
-//         court.dismissUnpaidCase(marketplace.getArbitrationPetitionId(project.projectId));
+//             // disclosure period passes no one pays, case is dismissed 
+//         vm.warp(block.timestamp + mediationService.DISCLOSURE_PERIOD() + 1);
+//         mediationService.dismissUnpaidCase(marketplace.getDisputeId(project.projectId));
 //         vm.prank(project.buyer);
 //         marketplace.resolveDismissedCase(project.projectId);
 //         _setBeforeBalances(project.paymentToken, project.buyer, project.provider, project.escrow);
@@ -723,9 +723,9 @@ contract EscrowTest is Test, TestSetup {
 //         escrow.withdraw();
 //     }
 
-//     function test_arbitration_with_settlement() public {
+//     function test_mediation_with_settlement() public {
 //         vm.pauseGasMetering();
-//         _projectWithArbitration(testProjectId_MATIC);
+//         _projectWithMediation(testProjectId_MATIC);
 //         Marketplace.Project memory project = marketplace.getProject(testProjectId_MATIC);
 //         IEscrow escrow = IEscrow(project.escrow);
 //             // settlement proposed and approved
@@ -738,8 +738,8 @@ contract EscrowTest is Test, TestSetup {
 //         );
 //         vm.prank(project.buyer);
 //         marketplace.approveChangeOrder(project.projectId);
-//         Court.Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
-//         assertEq(uint(petition.phase), uint(Phase.SettledExternally));
+//         MediationService.Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(project.projectId));
+//         assertEq(uint(dispute.phase), uint(Phase.SettledExternally));
 //         _setBeforeBalances(project.paymentToken, project.buyer, project.provider, project.escrow);
 //         vm.resumeGasMetering();
 //          // provider can withdraw adjusted project fee + stake (- forfeit) - commission

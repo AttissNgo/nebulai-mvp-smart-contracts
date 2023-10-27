@@ -7,537 +7,537 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../src/Interfaces/IEscrow.sol";
 import "forge-std/console.sol";
 
-contract CourtJuryTest is Test, TestSetup {
+contract MediationServicePanelTest is Test, TestSetup {
 
-    event JuryDrawn(uint256 indexed petitionId, bool isRedraw);
-    event JurorConfirmed(uint256 indexed petitionId, address jurorAddress);
-    event VotingInitiated(uint256 indexed petitionId);
-    event VoteCommitted(uint256 indexed petitionId, address indexed juror, bytes32 commit);
-    event RulingInitiated(uint256 indexed petitionId);
-    event VoteRevealed(uint256 indexed petitionId, address indexed juror, bool vote);
-    event VerdictReached(uint256 indexed petitionId, bool verdict, uint256 majorityVotes);
-    event JurorFeesClaimed(address indexed juror, uint256 amount);
-    event AdditionalJurorDrawingInitiated(uint256 indexed petitionId, uint256 requestId);
-    event AdditionalJurorsAssigned(uint256 indexed petitionId, address[] assignedJurors);
-    event JurorRemoved(uint256 indexed petitionId, address indexed juror);
-    event DelinquentReveal(uint256 indexed petitionId, bool deadlocked);
-    event ArbiterAssigned(uint256 indexed petitionId, address indexed arbiter);
-    event ArbiterVote(uint256 indexed petitionId, address indexed arbiter, bool vote);
+    event PanelDrawn(uint256 indexed disputeId, bool isRedraw);
+    event MediatorConfirmed(uint256 indexed disputeId, address mediatorAddress);
+    event VotingInitiated(uint256 indexed disputeId);
+    event VoteCommitted(uint256 indexed disputeId, address indexed mediator, bytes32 commit);
+    event DeterminationInitiated(uint256 indexed disputeId);
+    event VoteRevealed(uint256 indexed disputeId, address indexed mediator, bool vote);
+    event DecisionReached(uint256 indexed disputeId, bool decision, uint256 majorityVotes);
+    event MediatorFeesClaimed(address indexed mediator, uint256 amount);
+    event AdditionalMediatorDrawingInitiated(uint256 indexed disputeId, uint256 requestId);
+    event AdditionalMediatorsAssigned(uint256 indexed disputeId, address[] assignedMediators);
+    event MediatorRemoved(uint256 indexed disputeId, address indexed mediator);
+    event DelinquentReveal(uint256 indexed disputeId, bool deadlocked);
+    event ArbiterAssigned(uint256 indexed disputeId, address indexed arbiter);
+    event ArbiterVote(uint256 indexed disputeId, address indexed arbiter, bool vote);
 
     function setUp() public {
         _setUp();
         _whitelistUsers();
-        _registerJurors();
+        _registerMediators();
         _initializeTestProjects();
-        _initializeArbitrationProjects();
+        _initializeMediationProjects();
     }
 
-    function test_selectJury() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_discovery_MATIC));
-        vm.prank(petition.plaintiff);
-        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+    function test_selectPanel() public {
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_disclosure_MATIC));
+        vm.prank(dispute.claimant);
+        mediationService.payMediationFee{value: dispute.mediationFee}(dispute.disputeId, evidence1);
         vm.recordLogs();
-        vm.prank(petition.defendant);
-        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence2);
+        vm.prank(dispute.respondent);
+        mediationService.payMediationFee{value: dispute.mediationFee}(dispute.disputeId, evidence2);
         Vm.Log[] memory entries = vm.getRecordedLogs();
         uint256 requestId = uint(bytes32(entries[2].data));
         vm.expectEmit(true, false, false, true);
-        emit JuryDrawn(petition.petitionId, false);
-        vrf.fulfillRandomWords(requestId, address(court));
+        emit PanelDrawn(dispute.disputeId, false);
+        vrf.fulfillRandomWords(requestId, address(mediationService));
 
-        // jury drawn
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        assertEq(jury.confirmedJurors.length, 0);
-        for(uint i; i < jury.drawnJurors.length; ++i) {
-            for(uint j; j < jury.drawnJurors.length; ++j) {
+        // panel drawn
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        assertEq(panel.confirmedMediators.length, 0);
+        for(uint i; i < panel.drawnMediators.length; ++i) {
+            for(uint j; j < panel.drawnMediators.length; ++j) {
                 if(i != j) {
-                    assertFalse(jury.drawnJurors[i] == jury.drawnJurors[j]);
-                    assertFalse(jury.drawnJurors[i] == petition.plaintiff);
-                    assertFalse(jury.drawnJurors[i] == petition.defendant);
-                    assertTrue(juryPool.isEligible(jury.drawnJurors[i]));
+                    assertFalse(panel.drawnMediators[i] == panel.drawnMediators[j]);
+                    assertFalse(panel.drawnMediators[i] == dispute.claimant);
+                    assertFalse(panel.drawnMediators[i] == dispute.respondent);
+                    assertTrue(mediatorPool.isEligible(panel.drawnMediators[i]));
                 }
             }
         }
     }
 
     function test_acceptCase() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_jurySelection_MATIC));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        assertEq(jury.confirmedJurors.length, 0);
-        assertEq(court.getJurorStakeHeld(jury.drawnJurors[0], petition.petitionId), 0);
-        uint256 courtBalBefore = address(court).balance;
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_panelSelection_MATIC));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        assertEq(panel.confirmedMediators.length, 0);
+        assertEq(mediationService.getMediatorStakeHeld(panel.drawnMediators[0], dispute.disputeId), 0);
+        uint256 mediationServiceBalBefore = address(mediationService).balance;
 
-        uint256 stake = court.jurorFlatFee();
+        uint256 stake = mediationService.mediatorFlatFee();
         vm.expectEmit(true, false, false, true);
-        emit JurorConfirmed(petition.petitionId, jury.drawnJurors[0]);
-        vm.prank(jury.drawnJurors[0]);
-        court.acceptCase{value: stake}(petition.petitionId);
+        emit MediatorConfirmed(dispute.disputeId, panel.drawnMediators[0]);
+        vm.prank(panel.drawnMediators[0]);
+        mediationService.acceptCase{value: stake}(dispute.disputeId);
 
-        jury = court.getJury(petition.petitionId);
-        assertEq(jury.confirmedJurors[0], jury.drawnJurors[0]);
-        assertEq(court.getJurorStakeHeld(jury.confirmedJurors[0], petition.petitionId), stake);
-        assertEq(address(court).balance, courtBalBefore + stake);
+        panel = mediationService.getPanel(dispute.disputeId);
+        assertEq(panel.confirmedMediators[0], panel.drawnMediators[0]);
+        assertEq(mediationService.getMediatorStakeHeld(panel.confirmedMediators[0], dispute.disputeId), stake);
+        assertEq(address(mediationService).balance, mediationServiceBalBefore + stake);
     }
 
     function test_acceptCase_revert() public {
-        uint256 stake = court.jurorFlatFee();
+        uint256 stake = mediationService.mediatorFlatFee();
         // all seats filled
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        vm.expectRevert(Court.Court__JurorSeatsFilled.selector);
-        vm.prank(jury.drawnJurors[jury.drawnJurors.length - 1]);
-        court.acceptCase{value: stake}(petition.petitionId);
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        vm.expectRevert(MediationService.MediationService__MediatorSeatsFilled.selector);
+        vm.prank(panel.drawnMediators[panel.drawnMediators.length - 1]);
+        mediationService.acceptCase{value: stake}(dispute.disputeId);
         // already accepted
-        petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_jurySelection_ERC20));
-        jury = court.getJury(petition.petitionId);
-        vm.prank(jury.drawnJurors[0]);
-        court.acceptCase{value: stake}(petition.petitionId);
-        vm.expectRevert(Court.Court__AlreadyConfirmedJuror.selector);
-        vm.prank(jury.drawnJurors[0]);
-        court.acceptCase{value: stake}(petition.petitionId);  
+        dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_panelSelection_ERC20));
+        panel = mediationService.getPanel(dispute.disputeId);
+        vm.prank(panel.drawnMediators[0]);
+        mediationService.acceptCase{value: stake}(dispute.disputeId);
+        vm.expectRevert(MediationService.MediationService__AlreadyConfirmedMediator.selector);
+        vm.prank(panel.drawnMediators[0]);
+        mediationService.acceptCase{value: stake}(dispute.disputeId);  
         // insufficient stake 
-        vm.expectRevert(Court.Court__InsufficientJurorStake.selector);
-        vm.prank(jury.drawnJurors[1]);
-        court.acceptCase{value: stake - 1}(petition.petitionId);  
-        // not active juror
-        vm.prank(jury.drawnJurors[1]);
-        juryPool.pauseJuror();
-        vm.expectRevert(Court.Court__InvalidJuror.selector);
-        vm.prank(jury.drawnJurors[1]);
-        court.acceptCase{value: stake}(petition.petitionId);  
+        vm.expectRevert(MediationService.MediationService__InsufficientMediatorStake.selector);
+        vm.prank(panel.drawnMediators[1]);
+        mediationService.acceptCase{value: stake - 1}(dispute.disputeId);  
+        // not active mediator
+        vm.prank(panel.drawnMediators[1]);
+        mediatorPool.pauseMediator();
+        vm.expectRevert(MediationService.MediationService__InvalidMediator.selector);
+        vm.prank(panel.drawnMediators[1]);
+        mediationService.acceptCase{value: stake}(dispute.disputeId);  
     }
 
-    function test_juryAssembled() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_jurySelection_MATIC));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        uint256 jurorsNeeded = court.jurorsNeeded(petition.petitionId);
-        uint256 stake = court.jurorFlatFee();
-        for(uint i; i < jury.drawnJurors.length; ++i) {
-            if(court.getJury(petition.petitionId).confirmedJurors.length == jurorsNeeded - 1) {
+    function test_panelAssembled() public {
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_panelSelection_MATIC));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        uint256 mediatorsNeeded = mediationService.mediatorsNeeded(dispute.disputeId);
+        uint256 stake = mediationService.mediatorFlatFee();
+        for(uint i; i < panel.drawnMediators.length; ++i) {
+            if(mediationService.getPanel(dispute.disputeId).confirmedMediators.length == mediatorsNeeded - 1) {
                 vm.expectEmit(true, false, false, false);
-                emit VotingInitiated(petition.petitionId);
+                emit VotingInitiated(dispute.disputeId);
             }
-            vm.prank(jury.drawnJurors[i]);
-            court.acceptCase{value: stake}(petition.petitionId);
-            jury = court.getJury(petition.petitionId);
-            if(jury.confirmedJurors.length == jurorsNeeded) break;
+            vm.prank(panel.drawnMediators[i]);
+            mediationService.acceptCase{value: stake}(dispute.disputeId);
+            panel = mediationService.getPanel(dispute.disputeId);
+            if(panel.confirmedMediators.length == mediatorsNeeded) break;
         }
-        petition = court.getPetition(petition.petitionId);
-        assertEq(uint(petition.phase), uint(Phase.Voting));
+        dispute = mediationService.getDispute(dispute.disputeId);
+        assertEq(uint(dispute.phase), uint(Phase.Voting));
     }
 
     function test_commitVote() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        assertEq(court.getCommit(jury.confirmedJurors[0], petition.petitionId), 0x0);
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        assertEq(mediationService.getCommit(panel.confirmedMediators[0], dispute.disputeId), 0x0);
         
         bytes32 commit = keccak256(abi.encodePacked(true, "someSalt"));
         vm.expectEmit(true, true, false, true);
-        emit VoteCommitted(petition.petitionId, jury.confirmedJurors[0], commit);
-        vm.prank(jury.confirmedJurors[0]);
-        court.commitVote(petition.petitionId, commit);
+        emit VoteCommitted(dispute.disputeId, panel.confirmedMediators[0], commit);
+        vm.prank(panel.confirmedMediators[0]);
+        mediationService.commitVote(dispute.disputeId, commit);
         
-        assertEq(court.getCommit(jury.confirmedJurors[0], petition.petitionId), commit);
+        assertEq(mediationService.getCommit(panel.confirmedMediators[0], dispute.disputeId), commit);
     }
 
     function test_commitVote_revert() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
         bytes32 commit = keccak256(abi.encodePacked(true, "someSalt"));
-        // not juror
-        vm.expectRevert(Court.Court__InvalidJuror.selector);
-        vm.prank(petition.plaintiff); // cannot be juror
-        court.commitVote(petition.petitionId, commit);
+        // not mediator
+        vm.expectRevert(MediationService.MediationService__InvalidMediator.selector);
+        vm.prank(dispute.claimant); // cannot be mediator
+        mediationService.commitVote(dispute.disputeId, commit);
         // already committed
-        vm.prank(jury.confirmedJurors[0]);
-        court.commitVote(petition.petitionId, commit);
-        vm.expectRevert(Court.Court__JurorHasAlreadyCommmitedVote.selector);
-        vm.prank(jury.confirmedJurors[0]);
-        court.commitVote(petition.petitionId, commit);
+        vm.prank(panel.confirmedMediators[0]);
+        mediationService.commitVote(dispute.disputeId, commit);
+        vm.expectRevert(MediationService.MediationService__MediatorHasAlreadyCommmitedVote.selector);
+        vm.prank(panel.confirmedMediators[0]);
+        mediationService.commitVote(dispute.disputeId, commit);
         // invalid commit
-        vm.expectRevert(Court.Court__InvalidCommit.selector);
-        vm.prank(jury.confirmedJurors[1]);
-        court.commitVote(petition.petitionId, 0x0);
-        // cannot commit at wrong phase as there will be no confirmed jurors
-        petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_jurySelection_ERC20));
-        vm.expectRevert(Court.Court__InvalidJuror.selector);
-        vm.prank(jury.drawnJurors[1]);
-        court.commitVote(petition.petitionId, commit);
+        vm.expectRevert(MediationService.MediationService__InvalidCommit.selector);
+        vm.prank(panel.confirmedMediators[1]);
+        mediationService.commitVote(dispute.disputeId, 0x0);
+        // cannot commit at wrong phase as there will be no confirmed mediators
+        dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_panelSelection_ERC20));
+        vm.expectRevert(MediationService.MediationService__InvalidMediator.selector);
+        vm.prank(panel.drawnMediators[1]);
+        mediationService.commitVote(dispute.disputeId, commit);
     }
 
     function test_allVotesCommitted() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
         bytes32 commit = keccak256(abi.encodePacked(true, "someSalt"));
-        vm.prank(jury.confirmedJurors[0]);
-        court.commitVote(petition.petitionId, commit);
-        vm.prank(jury.confirmedJurors[1]);
-        court.commitVote(petition.petitionId, commit);
+        vm.prank(panel.confirmedMediators[0]);
+        mediationService.commitVote(dispute.disputeId, commit);
+        vm.prank(panel.confirmedMediators[1]);
+        mediationService.commitVote(dispute.disputeId, commit);
 
         vm.expectEmit(true, false, false, false);
-        emit RulingInitiated(petition.petitionId);
-        vm.prank(jury.confirmedJurors[2]);
-        court.commitVote(petition.petitionId, commit);
+        emit DeterminationInitiated(dispute.disputeId);
+        vm.prank(panel.confirmedMediators[2]);
+        mediationService.commitVote(dispute.disputeId, commit);
         
-        petition = court.getPetition(petition.petitionId);
-        assertEq(uint(petition.phase), uint(Phase.Ruling));
-        assertEq(petition.rulingStart, block.timestamp);
+        dispute = mediationService.getDispute(dispute.disputeId);
+        assertEq(uint(dispute.phase), uint(Phase.Determination));
+        assertEq(dispute.determinationStart, block.timestamp);
     }
 
     function test_revealVote() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_committedVotes_ERC20));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        address juror = jury.confirmedJurors[0];
-        vm.expectRevert(Court.Court__VoteHasNotBeenRevealed.selector);
-        court.getVote(juror, petition.petitionId);
-        assertEq(court.hasRevealedVote(juror, petition.petitionId), false);
-        assertEq(court.getJurorStakeHeld(juror, petition.petitionId), court.jurorFlatFee());
-        uint256 jurorBalBefore = juror.balance;
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_committedVotes_ERC20));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        address mediator = panel.confirmedMediators[0];
+        vm.expectRevert(MediationService.MediationService__VoteHasNotBeenRevealed.selector);
+        mediationService.getVote(mediator, dispute.disputeId);
+        assertEq(mediationService.hasRevealedVote(mediator, dispute.disputeId), false);
+        assertEq(mediationService.getMediatorStakeHeld(mediator, dispute.disputeId), mediationService.mediatorFlatFee());
+        uint256 mediatorBalBefore = mediator.balance;
 
         vm.expectEmit(true, true, false, true);
-        emit VoteRevealed(petition.petitionId, juror, true);
-        vm.prank(juror);
-        court.revealVote(petition.petitionId, true, "someSalt");
+        emit VoteRevealed(dispute.disputeId, mediator, true);
+        vm.prank(mediator);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
 
-        assertEq(court.getVote(juror, petition.petitionId), true);
-        assertEq(court.hasRevealedVote(juror, petition.petitionId), true);
-        assertEq(court.getJurorStakeHeld(juror, petition.petitionId), 0);
-        assertEq(juror.balance, jurorBalBefore + court.jurorFlatFee());
+        assertEq(mediationService.getVote(mediator, dispute.disputeId), true);
+        assertEq(mediationService.hasRevealedVote(mediator, dispute.disputeId), true);
+        assertEq(mediationService.getMediatorStakeHeld(mediator, dispute.disputeId), 0);
+        assertEq(mediator.balance, mediatorBalBefore + mediationService.mediatorFlatFee());
     }
 
     function test_revealVote_revert() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_committedVotes_ERC20));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        address juror = jury.confirmedJurors[0];
-        // invalid juror
-        vm.expectRevert(Court.Court__InvalidJuror.selector);
-        vm.prank(petition.plaintiff);
-        court.revealVote(petition.petitionId, true, "someSalt");
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_committedVotes_ERC20));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        address mediator = panel.confirmedMediators[0];
+        // invalid mediator
+        vm.expectRevert(MediationService.MediationService__InvalidMediator.selector);
+        vm.prank(dispute.claimant);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
         // reveal doesn't match commit
-        vm.expectRevert(Court.Court__RevealDoesNotMatchCommit.selector);
-        vm.prank(juror);
-        court.revealVote(petition.petitionId, false, "someSalt"); // incorrect vote
-        vm.expectRevert(Court.Court__RevealDoesNotMatchCommit.selector);
-        vm.prank(juror);
-        court.revealVote(petition.petitionId, true, "WRONG_Salt"); // incorrect salt
+        vm.expectRevert(MediationService.MediationService__RevealDoesNotMatchCommit.selector);
+        vm.prank(mediator);
+        mediationService.revealVote(dispute.disputeId, false, "someSalt"); // incorrect vote
+        vm.expectRevert(MediationService.MediationService__RevealDoesNotMatchCommit.selector);
+        vm.prank(mediator);
+        mediationService.revealVote(dispute.disputeId, true, "WRONG_Salt"); // incorrect salt
         // already revealed
-        vm.prank(juror);
-        court.revealVote(petition.petitionId, true, "someSalt");
-        vm.expectRevert(Court.Court__AlreadyRevealed.selector);
-        vm.prank(juror);
-        court.revealVote(petition.petitionId, true, "someSalt");
+        vm.prank(mediator);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
+        vm.expectRevert(MediationService.MediationService__AlreadyRevealed.selector);
+        vm.prank(mediator);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
         // wrong phase
-        petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        jury = court.getJury(petition.petitionId);
-        juror = jury.confirmedJurors[0];
-        vm.expectRevert(Court.Court__CannotRevealBeforeAllVotesCommitted.selector);
-        vm.prank(juror);
-        court.revealVote(petition.petitionId, true, "someSalt");
+        dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        panel = mediationService.getPanel(dispute.disputeId);
+        mediator = panel.confirmedMediators[0];
+        vm.expectRevert(MediationService.MediationService__CannotRevealBeforeAllVotesCommitted.selector);
+        vm.prank(mediator);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
     }
 
-    function test_renderVerdict() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_committedVotes_ERC20));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        uint256 juror0FeesBefore = court.getJurorFeesOwed(jury.confirmedJurors[0]);
-        uint256 juror1FeesBefore = court.getJurorFeesOwed(jury.confirmedJurors[1]);
-        uint256 juror2FeesBefore = court.getJurorFeesOwed(jury.confirmedJurors[2]);
-        uint256 juryReserveBefore = juryPool.getJuryReserve();
-        uint256 juryPoolBalBefore = address(juryPool).balance;
-        assertEq(court.getFeesHeld(petition.petitionId), petition.arbitrationFee * 2);
+    function test_renderDecision() public {
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_committedVotes_ERC20));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        uint256 mediator0FeesBefore = mediationService.getMediatorFeesOwed(panel.confirmedMediators[0]);
+        uint256 mediator1FeesBefore = mediationService.getMediatorFeesOwed(panel.confirmedMediators[1]);
+        uint256 mediator2FeesBefore = mediationService.getMediatorFeesOwed(panel.confirmedMediators[2]);
+        uint256 mediationReserveBefore = mediatorPool.getMediationReserve();
+        uint256 mediatorPoolBalBefore = address(mediatorPool).balance;
+        assertEq(mediationService.getFeesHeld(dispute.disputeId), dispute.mediationFee * 2);
 
-        vm.prank(jury.confirmedJurors[0]);
-        court.revealVote(petition.petitionId, true, "someSalt");
-        vm.prank(jury.confirmedJurors[1]);
-        court.revealVote(petition.petitionId, true, "someSalt");
+        vm.prank(panel.confirmedMediators[0]);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
+        vm.prank(panel.confirmedMediators[1]);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
         vm.expectEmit(true, false, false, true);
-        emit VerdictReached(petition.petitionId, true, 2);
-        vm.prank(jury.confirmedJurors[2]);
-        court.revealVote(petition.petitionId, false, "someSalt");
+        emit DecisionReached(dispute.disputeId, true, 2);
+        vm.prank(panel.confirmedMediators[2]);
+        mediationService.revealVote(dispute.disputeId, false, "someSalt");
 
-        petition = court.getPetition(petition.petitionId);
-        assertEq(uint(petition.phase), uint(Phase.Verdict));
-        assertEq(petition.petitionGranted, true);
-        assertEq(petition.verdictRenderedDate, block.timestamp);
-        // juror fees owed recorded correctly
-        uint256 jurorFee = petition.arbitrationFee / court.jurorsNeeded(petition.petitionId);
-        assertEq(court.getJurorFeesOwed(jury.confirmedJurors[0]), juror0FeesBefore + jurorFee);
-        assertEq(court.getJurorFeesOwed(jury.confirmedJurors[1]), juror1FeesBefore + jurorFee);
-        assertEq(court.getJurorFeesOwed(jury.confirmedJurors[2]), juror2FeesBefore); // minority vote, nothing owed
-        // minority juror's fee transferred to to jury reserve
-        assertEq(juryPool.getJuryReserve(), juryReserveBefore + jurorFee);
-        assertEq(address(juryPool).balance, juryPoolBalBefore + jurorFee);
-        // fees held now only represents winner's fee - loser's fee has been distributed to jurors and jury reserve
-        assertEq(court.getFeesHeld(petition.petitionId), petition.arbitrationFee);
+        dispute = mediationService.getDispute(dispute.disputeId);
+        assertEq(uint(dispute.phase), uint(Phase.Decision));
+        assertEq(dispute.granted, true);
+        assertEq(dispute.decisionRenderedDate, block.timestamp);
+        // mediator fees owed recorded correctly
+        uint256 mediatorFee = dispute.mediationFee / mediationService.mediatorsNeeded(dispute.disputeId);
+        assertEq(mediationService.getMediatorFeesOwed(panel.confirmedMediators[0]), mediator0FeesBefore + mediatorFee);
+        assertEq(mediationService.getMediatorFeesOwed(panel.confirmedMediators[1]), mediator1FeesBefore + mediatorFee);
+        assertEq(mediationService.getMediatorFeesOwed(panel.confirmedMediators[2]), mediator2FeesBefore); // minority vote, nothing owed
+        // minority mediator's fee transferred to to panel reserve
+        assertEq(mediatorPool.getMediationReserve(), mediationReserveBefore + mediatorFee);
+        assertEq(address(mediatorPool).balance, mediatorPoolBalBefore + mediatorFee);
+        // fees held now only represents winner's fee - loser's fee has been distributed to mediators and panel reserve
+        assertEq(mediationService.getFeesHeld(dispute.disputeId), dispute.mediationFee);
 
         /////////
         // test with full majority
         /////////
-        petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        jury = court.getJury(petition.petitionId);
-        juror0FeesBefore = court.getJurorFeesOwed(jury.confirmedJurors[0]);
-        juror1FeesBefore = court.getJurorFeesOwed(jury.confirmedJurors[1]);
-        juror2FeesBefore = court.getJurorFeesOwed(jury.confirmedJurors[2]);
-        juryReserveBefore = juryPool.getJuryReserve();
-        juryPoolBalBefore = address(juryPool).balance;
-        assertEq(court.getFeesHeld(petition.petitionId), petition.arbitrationFee * 2);
+        dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        panel = mediationService.getPanel(dispute.disputeId);
+        mediator0FeesBefore = mediationService.getMediatorFeesOwed(panel.confirmedMediators[0]);
+        mediator1FeesBefore = mediationService.getMediatorFeesOwed(panel.confirmedMediators[1]);
+        mediator2FeesBefore = mediationService.getMediatorFeesOwed(panel.confirmedMediators[2]);
+        mediationReserveBefore = mediatorPool.getMediationReserve();
+        mediatorPoolBalBefore = address(mediatorPool).balance;
+        assertEq(mediationService.getFeesHeld(dispute.disputeId), dispute.mediationFee * 2);
 
         bool[3] memory voteInputs = [false, false, false];
         bool[] memory votes = new bool[](voteInputs.length);
         for(uint i; i < voteInputs.length; ++i) {
             votes[i] = voteInputs[i];
         }
-        _customRuling(id_arbitration_confirmedJury_MATIC, votes, true);
+        _customDetermination(id_mediation_confirmedPanel_MATIC, votes, true);
         
-        petition = court.getPetition(petition.petitionId);
-        // juror fees owed recorded correctly
-        assertEq(court.getJurorFeesOwed(jury.confirmedJurors[0]), juror0FeesBefore + jurorFee);
-        assertEq(court.getJurorFeesOwed(jury.confirmedJurors[1]), juror1FeesBefore + jurorFee);
-        assertEq(court.getJurorFeesOwed(jury.confirmedJurors[2]), juror2FeesBefore + jurorFee); 
-        // no transfer to jury reserve
-        assertEq(juryPool.getJuryReserve(), juryReserveBefore);
-        assertEq(address(juryPool).balance, juryPoolBalBefore);
-        // fees held now only represents winner's fee - loser's fee has been distributed to jurors
-        assertEq(court.getFeesHeld(petition.petitionId), petition.arbitrationFee);
+        dispute = mediationService.getDispute(dispute.disputeId);
+        // mediator fees owed recorded correctly
+        assertEq(mediationService.getMediatorFeesOwed(panel.confirmedMediators[0]), mediator0FeesBefore + mediatorFee);
+        assertEq(mediationService.getMediatorFeesOwed(panel.confirmedMediators[1]), mediator1FeesBefore + mediatorFee);
+        assertEq(mediationService.getMediatorFeesOwed(panel.confirmedMediators[2]), mediator2FeesBefore + mediatorFee); 
+        // no transfer to panel reserve
+        assertEq(mediatorPool.getMediationReserve(), mediationReserveBefore);
+        assertEq(address(mediatorPool).balance, mediatorPoolBalBefore);
+        // fees held now only represents winner's fee - loser's fee has been distributed to mediators
+        assertEq(mediationService.getFeesHeld(dispute.disputeId), dispute.mediationFee);
     }
 
-    function test_claimJurorFees() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_committedVotes_ERC20));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        uint256 juror0BalBefore = jury.confirmedJurors[0].balance;
-        uint256 juror1BalBefore = jury.confirmedJurors[1].balance;
+    function test_claimMediatorFees() public {
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_committedVotes_ERC20));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        uint256 mediator0BalBefore = panel.confirmedMediators[0].balance;
+        uint256 mediator1BalBefore = panel.confirmedMediators[1].balance;
 
-        vm.prank(jury.confirmedJurors[0]);
-        court.revealVote(petition.petitionId, true, "someSalt");
-        vm.prank(jury.confirmedJurors[1]);
-        court.revealVote(petition.petitionId, true, "someSalt");
+        vm.prank(panel.confirmedMediators[0]);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
+        vm.prank(panel.confirmedMediators[1]);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
         vm.expectEmit(true, false, false, true);
-        emit VerdictReached(petition.petitionId, true, 2);
-        vm.prank(jury.confirmedJurors[2]);
-        court.revealVote(petition.petitionId, false, "someSalt");
+        emit DecisionReached(dispute.disputeId, true, 2);
+        vm.prank(panel.confirmedMediators[2]);
+        mediationService.revealVote(dispute.disputeId, false, "someSalt");
 
-        uint256 jurorFee = petition.arbitrationFee / court.jurorsNeeded(petition.petitionId);
-        uint256 stake = petition.arbitrationFee / court.jurorsNeeded(petition.petitionId);
+        uint256 mediatorFee = dispute.mediationFee / mediationService.mediatorsNeeded(dispute.disputeId);
+        uint256 stake = dispute.mediationFee / mediationService.mediatorsNeeded(dispute.disputeId);
         vm.expectEmit(true, false, false, true);
-        emit JurorFeesClaimed(jury.confirmedJurors[0], jurorFee);
-        vm.prank(jury.confirmedJurors[0]);
-        court.claimJurorFees();
-        assertEq(court.getJurorFeesOwed(jury.confirmedJurors[0]), 0);
-        assertEq(jury.confirmedJurors[0].balance, juror0BalBefore + jurorFee + stake);
+        emit MediatorFeesClaimed(panel.confirmedMediators[0], mediatorFee);
+        vm.prank(panel.confirmedMediators[0]);
+        mediationService.claimMediatorFees();
+        assertEq(mediationService.getMediatorFeesOwed(panel.confirmedMediators[0]), 0);
+        assertEq(panel.confirmedMediators[0].balance, mediator0BalBefore + mediatorFee + stake);
 
         vm.expectEmit(true, false, false, true);
-        emit JurorFeesClaimed(jury.confirmedJurors[1], jurorFee);
-        vm.prank(jury.confirmedJurors[1]);
-        court.claimJurorFees();
-        assertEq(court.getJurorFeesOwed(jury.confirmedJurors[1]), 0);
-        assertEq(jury.confirmedJurors[1].balance, juror1BalBefore + jurorFee + stake);
+        emit MediatorFeesClaimed(panel.confirmedMediators[1], mediatorFee);
+        vm.prank(panel.confirmedMediators[1]);
+        mediationService.claimMediatorFees();
+        assertEq(mediationService.getMediatorFeesOwed(panel.confirmedMediators[1]), 0);
+        assertEq(panel.confirmedMediators[1].balance, mediator1BalBefore + mediatorFee + stake);
 
-        vm.expectRevert(Court.Court__NoJurorFeesOwed.selector);
-        vm.prank(jury.confirmedJurors[2]); // minority - nothing owed
-        court.claimJurorFees();
+        vm.expectRevert(MediationService.MediationService__NoMediatorFeesOwed.selector);
+        vm.prank(panel.confirmedMediators[2]); // minority - nothing owed
+        mediationService.claimMediatorFees();
     }
 
     ///////////////////////////
-    ///   JURY EXCEPTIONS   ///
+    ///   PANEL EXCEPTIONS   ///
     ///////////////////////////
 
-    function test_drawAdditionalJurors() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_jurySelection_MATIC));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        assertEq(jury.drawnJurors.length, court.jurorsNeeded(petition.petitionId) * 3);
-        assertEq(jury.confirmedJurors.length, 0);
-        vm.warp(block.timestamp + court.JURY_SELECTION_PERIOD() + 1);
+    function test_drawAdditionalMediators() public {
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_panelSelection_MATIC));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        assertEq(panel.drawnMediators.length, mediationService.mediatorsNeeded(dispute.disputeId) * 3);
+        assertEq(panel.confirmedMediators.length, 0);
+        vm.warp(block.timestamp + mediationService.PANEL_SELECTION_PERIOD() + 1);
         
         vm.expectEmit(true, false, false, false);
-        emit AdditionalJurorDrawingInitiated(petition.petitionId, 42 /* cannot be known */);
+        emit AdditionalMediatorDrawingInitiated(dispute.disputeId, 42 /* cannot be known */);
         vm.recordLogs();
-        court.drawAdditionalJurors(petition.petitionId);
+        mediationService.drawAdditionalMediators(dispute.disputeId);
         Vm.Log[] memory entries = vm.getRecordedLogs();
         uint256 requestId = uint(bytes32(entries[1].data));
-        vrf.fulfillRandomWords(requestId, address(court));
+        vrf.fulfillRandomWords(requestId, address(mediationService));
 
-        jury = court.getJury(petition.petitionId);
-        assertEq(jury.drawnJurors.length, court.jurorsNeeded(petition.petitionId) * 5);
-        for(uint i; i < jury.drawnJurors.length; ++i) {
-            for(uint j; j < jury.drawnJurors.length; ++j) {
+        panel = mediationService.getPanel(dispute.disputeId);
+        assertEq(panel.drawnMediators.length, mediationService.mediatorsNeeded(dispute.disputeId) * 5);
+        for(uint i; i < panel.drawnMediators.length; ++i) {
+            for(uint j; j < panel.drawnMediators.length; ++j) {
                 if(i != j) {
-                    assertTrue(jury.drawnJurors[i] != jury.drawnJurors[j]);
+                    assertTrue(panel.drawnMediators[i] != panel.drawnMediators[j]);
                 }
             }
         }
     }
 
-    function test_drawAdditionalJurors_revert() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_discovery_ERC20));
+    function test_drawAdditionalMediators_revert() public {
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_disclosure_ERC20));
         // wrong phase
-        vm.expectRevert(Court.Court__OnlyDuringJurySelection.selector);
-        court.drawAdditionalJurors(petition.petitionId);
+        vm.expectRevert(MediationService.MediationService__OnlyDuringPanelSelection.selector);
+        mediationService.drawAdditionalMediators(dispute.disputeId);
         // initial selection still open
-        petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_jurySelection_MATIC));
-        vm.expectRevert(Court.Court__InitialSelectionPeriodStillOpen.selector);
-        court.drawAdditionalJurors(petition.petitionId);
+        dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_panelSelection_MATIC));
+        vm.expectRevert(MediationService.MediationService__InitialSelectionPeriodStillOpen.selector);
+        mediationService.drawAdditionalMediators(dispute.disputeId);
         // already redrawn
-        vm.warp(block.timestamp + court.JURY_SELECTION_PERIOD() + 1);
+        vm.warp(block.timestamp + mediationService.PANEL_SELECTION_PERIOD() + 1);
         vm.recordLogs();
-        court.drawAdditionalJurors(petition.petitionId);
+        mediationService.drawAdditionalMediators(dispute.disputeId);
         Vm.Log[] memory entries = vm.getRecordedLogs();
         uint256 requestId = uint(bytes32(entries[1].data));
-        vrf.fulfillRandomWords(requestId, address(court));
-        vm.expectRevert(Court.Court__JuryAlreadyRedrawn.selector);
-        court.drawAdditionalJurors(petition.petitionId);
+        vrf.fulfillRandomWords(requestId, address(mediationService));
+        vm.expectRevert(MediationService.MediationService__PanelAlreadyRedrawn.selector);
+        mediationService.drawAdditionalMediators(dispute.disputeId);
     }
 
-    function test_assignAdditionalJurors() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_jurySelection_MATIC));
-        vm.warp(block.timestamp + court.JURY_SELECTION_PERIOD() + 1);
+    function test_assignAdditionalMediators() public {
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_panelSelection_MATIC));
+        vm.warp(block.timestamp + mediationService.PANEL_SELECTION_PERIOD() + 1);
         vm.recordLogs();
-        court.drawAdditionalJurors(petition.petitionId);
+        mediationService.drawAdditionalMediators(dispute.disputeId);
         Vm.Log[] memory entries = vm.getRecordedLogs();
         uint256 requestId = uint(bytes32(entries[1].data));
-        vrf.fulfillRandomWords(requestId, address(court));
+        vrf.fulfillRandomWords(requestId, address(mediationService));
 
-        address assignedJuror1 = vm.addr(10000001);
-        address assignedJuror2 = vm.addr(10000002);
-        address assignedJuror3 = vm.addr(10000003);
-        address[3] memory ringers = [assignedJuror1, assignedJuror2, assignedJuror3];
-        uint256 stake = juryPool.minimumStake();
+        address assignedMediator1 = vm.addr(10000001);
+        address assignedMediator2 = vm.addr(10000002);
+        address assignedMediator3 = vm.addr(10000003);
+        address[3] memory ringers = [assignedMediator1, assignedMediator2, assignedMediator3];
+        uint256 stake = mediatorPool.minimumStake();
         for(uint i; i < ringers.length; ++i) {
             vm.deal(ringers[i], 10000 ether);
             vm.prank(admin1);
             whitelist.approveAddress(ringers[i]);
             vm.prank(ringers[i]);
-            juryPool.registerAsJuror{value: stake}();
+            mediatorPool.registerAsMediator{value: stake}();
         }
-        address[] memory assignedJurors = new address[](ringers.length);
-        for(uint i; i < assignedJurors.length; ++i) {
-            assignedJurors[i] = ringers[i];
+        address[] memory assignedMediators = new address[](ringers.length);
+        for(uint i; i < assignedMediators.length; ++i) {
+            assignedMediators[i] = ringers[i];
         } 
         vm.expectEmit(true, false, false, true);
-        emit AdditionalJurorsAssigned(petition.petitionId, assignedJurors);
+        emit AdditionalMediatorsAssigned(dispute.disputeId, assignedMediators);
         vm.prank(admin1);
-        court.assignAdditionalJurors(petition.petitionId, assignedJurors);
+        mediationService.assignAdditionalMediators(dispute.disputeId, assignedMediators);
 
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        assertEq(jury.drawnJurors.length, assignedJurors.length + (court.jurorsNeeded(petition.petitionId) * 5));
-        uint256 jurorFee = court.jurorFlatFee();
-        for(uint i; i < assignedJurors.length; ++i) {
-            vm.prank(assignedJurors[i]);
-            court.acceptCase{value: jurorFee}(petition.petitionId);
-            assertEq(court.isConfirmedJuror(petition.petitionId, assignedJurors[i]), true);
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        assertEq(panel.drawnMediators.length, assignedMediators.length + (mediationService.mediatorsNeeded(dispute.disputeId) * 5));
+        uint256 mediatorFee = mediationService.mediatorFlatFee();
+        for(uint i; i < assignedMediators.length; ++i) {
+            vm.prank(assignedMediators[i]);
+            mediationService.acceptCase{value: mediatorFee}(dispute.disputeId);
+            assertEq(mediationService.isConfirmedMediator(dispute.disputeId, assignedMediators[i]), true);
         }
     }
 
-    function test_assignAdditionalJurors_revert() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_discovery_MATIC));
-        address[] memory additionalJurors = new address[](1);
-        additionalJurors[0] = admin1;
+    function test_assignAdditionalMediators_revert() public {
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_disclosure_MATIC));
+        address[] memory additionalMediators = new address[](1);
+        additionalMediators[0] = admin1;
         // wrong phase
-        vm.expectRevert(Court.Court__OnlyDuringJurySelection.selector);
+        vm.expectRevert(MediationService.MediationService__OnlyDuringPanelSelection.selector);
         vm.prank(admin1);
-        court.assignAdditionalJurors(petition.petitionId, additionalJurors);
+        mediationService.assignAdditionalMediators(dispute.disputeId, additionalMediators);
         // selection period still open
-        petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_jurySelection_MATIC));
-        vm.expectRevert(Court.Court__InitialSelectionPeriodStillOpen.selector);
+        dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_panelSelection_MATIC));
+        vm.expectRevert(MediationService.MediationService__InitialSelectionPeriodStillOpen.selector);
         vm.prank(admin1);
-        court.assignAdditionalJurors(petition.petitionId, additionalJurors);
-        // jury not redrawn
-        vm.warp(block.timestamp + court.JURY_SELECTION_PERIOD() + 1);
-        vm.expectRevert(Court.Court__JuryNotRedrawn.selector);
+        mediationService.assignAdditionalMediators(dispute.disputeId, additionalMediators);
+        // panel not redrawn
+        vm.warp(block.timestamp + mediationService.PANEL_SELECTION_PERIOD() + 1);
+        vm.expectRevert(MediationService.MediationService__PanelNotRedrawn.selector);
         vm.prank(admin1);
-        court.assignAdditionalJurors(petition.petitionId, additionalJurors);
+        mediationService.assignAdditionalMediators(dispute.disputeId, additionalMediators);
         // not admin
         vm.recordLogs();
-        court.drawAdditionalJurors(petition.petitionId);
+        mediationService.drawAdditionalMediators(dispute.disputeId);
         Vm.Log[] memory entries = vm.getRecordedLogs();
         uint256 requestId = uint(bytes32(entries[1].data));
-        vrf.fulfillRandomWords(requestId, address(court));
-        vm.expectRevert(Court.Court__OnlyAdmin.selector);
+        vrf.fulfillRandomWords(requestId, address(mediationService));
+        vm.expectRevert(MediationService.MediationService__OnlyAdmin.selector);
         vm.prank(carlos);
-        court.assignAdditionalJurors(petition.petitionId, additionalJurors);
-        // invalid juror - confirmed juror
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        uint256 jurorFee = court.jurorFlatFee();
-        vm.prank(jury.drawnJurors[0]);
-        court.acceptCase{value: jurorFee}(petition.petitionId);
-        jury = court.getJury(petition.petitionId);
-        additionalJurors[0] = jury.confirmedJurors[0];
-        vm.expectRevert(Court.Court__InvalidJuror.selector);
+        mediationService.assignAdditionalMediators(dispute.disputeId, additionalMediators);
+        // invalid mediator - confirmed mediator
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        uint256 mediatorFee = mediationService.mediatorFlatFee();
+        vm.prank(panel.drawnMediators[0]);
+        mediationService.acceptCase{value: mediatorFee}(dispute.disputeId);
+        panel = mediationService.getPanel(dispute.disputeId);
+        additionalMediators[0] = panel.confirmedMediators[0];
+        vm.expectRevert(MediationService.MediationService__InvalidMediator.selector);
         vm.prank(admin1);
-        court.assignAdditionalJurors(petition.petitionId, additionalJurors);
-        // invalid juror - ineligible
-        uint256 stake = juryPool.getJurorStake(admin1);
+        mediationService.assignAdditionalMediators(dispute.disputeId, additionalMediators);
+        // invalid mediator - ineligible
+        uint256 stake = mediatorPool.getMediatorStake(admin1);
         vm.prank(admin1);
-        juryPool.withdrawStake(stake);
-        additionalJurors[0] = admin1;
-        vm.expectRevert(Court.Court__InvalidJuror.selector);
+        mediatorPool.withdrawStake(stake);
+        additionalMediators[0] = admin1;
+        vm.expectRevert(MediationService.MediationService__InvalidMediator.selector);
         vm.prank(admin1);
-        court.assignAdditionalJurors(petition.petitionId, additionalJurors);
-        // invalid juror - plaintiff or defendant
-        additionalJurors[0] = petition.plaintiff;
-        vm.expectRevert(Court.Court__InvalidJuror.selector);
+        mediationService.assignAdditionalMediators(dispute.disputeId, additionalMediators);
+        // invalid mediator - claimant or respondent
+        additionalMediators[0] = dispute.claimant;
+        vm.expectRevert(MediationService.MediationService__InvalidMediator.selector);
         vm.prank(admin1);
-        court.assignAdditionalJurors(petition.petitionId, additionalJurors);
+        mediationService.assignAdditionalMediators(dispute.disputeId, additionalMediators);
     }
 
     function test_delinquentCommit() public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        address juror1 = jury.confirmedJurors[1];
-        address juror2 = jury.confirmedJurors[2];
-        uint256 stake = court.jurorFlatFee();
-            // juror 0 votes
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        address mediator1 = panel.confirmedMediators[1];
+        address mediator2 = panel.confirmedMediators[2];
+        uint256 stake = mediationService.mediatorFlatFee();
+            // mediator 0 votes
         bytes32 commit = keccak256(abi.encodePacked(true, "someSalt"));
-        vm.prank(jury.confirmedJurors[0]);
-        court.commitVote(petition.petitionId, commit);
-        vm.warp(block.timestamp + court.VOTING_PERIOD() + 1);
-            // jurors 1 & 2 have not voted
-        assertEq(court.getCommit(juror1, petition.petitionId), 0x0);
-        assertEq(court.getCommit(juror2, petition.petitionId), 0x0);
-        uint256 drawnJurorsBefore = jury.drawnJurors.length;
-        uint256 confirmedJurorsBefore = jury.confirmedJurors.length;
-        assertEq(court.getJurorStakeHeld(juror1, petition.petitionId), stake);
-        assertEq(court.getJurorStakeHeld(juror2, petition.petitionId), stake);
-        uint256 juryReserveBefore = juryPool.getJuryReserve();
+        vm.prank(panel.confirmedMediators[0]);
+        mediationService.commitVote(dispute.disputeId, commit);
+        vm.warp(block.timestamp + mediationService.VOTING_PERIOD() + 1);
+            // mediators 1 & 2 have not voted
+        assertEq(mediationService.getCommit(mediator1, dispute.disputeId), 0x0);
+        assertEq(mediationService.getCommit(mediator2, dispute.disputeId), 0x0);
+        uint256 drawnMediatorsBefore = panel.drawnMediators.length;
+        uint256 confirmedMediatorsBefore = panel.confirmedMediators.length;
+        assertEq(mediationService.getMediatorStakeHeld(mediator1, dispute.disputeId), stake);
+        assertEq(mediationService.getMediatorStakeHeld(mediator2, dispute.disputeId), stake);
+        uint256 mediationReserveBefore = mediatorPool.getMediationReserve();
         
         vm.expectEmit(true, true, false, false);
-        emit JurorRemoved(petition.petitionId, juror1);
+        emit MediatorRemoved(dispute.disputeId, mediator1);
         vm.expectEmit(true, true, false, false);
-        emit JurorRemoved(petition.petitionId, juror2);
-        court.delinquentCommit(petition.petitionId);
+        emit MediatorRemoved(dispute.disputeId, mediator2);
+        mediationService.delinquentCommit(dispute.disputeId);
 
-        // jurors removed
-        jury = court.getJury(petition.petitionId);
-        assertEq(jury.drawnJurors.length, drawnJurorsBefore - 2);
-        for(uint i; i < jury.drawnJurors.length; ++i) {
-            assertTrue(jury.drawnJurors[i] != juror1);
-            assertTrue(jury.drawnJurors[i] != juror2);
+        // mediators removed
+        panel = mediationService.getPanel(dispute.disputeId);
+        assertEq(panel.drawnMediators.length, drawnMediatorsBefore - 2);
+        for(uint i; i < panel.drawnMediators.length; ++i) {
+            assertTrue(panel.drawnMediators[i] != mediator1);
+            assertTrue(panel.drawnMediators[i] != mediator2);
         }
-        assertEq(jury.confirmedJurors.length, confirmedJurorsBefore - 2);
-        assertEq(court.isConfirmedJuror(petition.petitionId, juror1), false);
-        assertEq(court.isConfirmedJuror(petition.petitionId, juror2), false);
-        // stakes transferred to jury pool
-        assertEq(court.getJurorStakeHeld(juror1, petition.petitionId), 0);
-        assertEq(court.getJurorStakeHeld(juror2, petition.petitionId), 0);
-        assertEq(juryPool.getJuryReserve(), juryReserveBefore + stake + stake);
+        assertEq(panel.confirmedMediators.length, confirmedMediatorsBefore - 2);
+        assertEq(mediationService.isConfirmedMediator(dispute.disputeId, mediator1), false);
+        assertEq(mediationService.isConfirmedMediator(dispute.disputeId, mediator2), false);
+        // stakes transferred to panel pool
+        assertEq(mediationService.getMediatorStakeHeld(mediator1, dispute.disputeId), 0);
+        assertEq(mediationService.getMediatorStakeHeld(mediator2, dispute.disputeId), 0);
+        assertEq(mediatorPool.getMediationReserve(), mediationReserveBefore + stake + stake);
         // voting period restarted
-        petition = court.getPetition(petition.petitionId);
-        assertEq(petition.votingStart, block.timestamp);
+        dispute = mediationService.getDispute(dispute.disputeId);
+        assertEq(dispute.votingStart, block.timestamp);
     }
 
     function test_delinquentCommit_revert() public {
         // voting period still active
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        vm.expectRevert(Court.Court__VotingPeriodStillActive.selector);
-        court.delinquentCommit(petition.petitionId);
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        vm.expectRevert(MediationService.MediationService__VotingPeriodStillActive.selector);
+        mediationService.delinquentCommit(dispute.disputeId);
         // no delinquent commits
-        Court.Jury memory jury = court.getJury(petition.petitionId);
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
         bytes32 commit = keccak256(abi.encodePacked(true, "someSalt"));
-        for(uint i; i < jury.confirmedJurors.length; ++i) {
-            vm.prank(jury.confirmedJurors[i]);
-            court.commitVote(petition.petitionId, commit);
+        for(uint i; i < panel.confirmedMediators.length; ++i) {
+            vm.prank(panel.confirmedMediators[i]);
+            mediationService.commitVote(dispute.disputeId, commit);
         }
-        vm.warp(block.timestamp + court.VOTING_PERIOD() + 1);
-        vm.expectRevert(Court.Court__NoDelinquentCommits.selector);
-        court.delinquentCommit(petition.petitionId);
+        vm.warp(block.timestamp + mediationService.VOTING_PERIOD() + 1);
+        vm.expectRevert(MediationService.MediationService__NoDelinquentCommits.selector);
+        mediationService.delinquentCommit(dispute.disputeId);
     }
 
     function test_delinquentReveal_majority() public {
@@ -547,49 +547,49 @@ contract CourtJuryTest is Test, TestSetup {
         for(uint i; i < voteInputs.length; ++i) {
             votes[i] = voteInputs[i];
         }
-        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
+        _customDetermination(id_mediation_confirmedPanel_MATIC, votes, false);
         vm.resumeGasMetering();
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-            // juror0 will be removed, resulting in a majority decision
-        address juror0 = jury.confirmedJurors[0];
-        address juror1 = jury.confirmedJurors[1];
-        address juror2 = jury.confirmedJurors[2];
-        vm.prank(juror1);
-        court.revealVote(petition.petitionId, true, "someSalt");
-        vm.prank(juror2);
-        court.revealVote(petition.petitionId, true, "someSalt");
-        assertTrue(court.hasRevealedVote(juror1, petition.petitionId));
-        assertTrue(court.hasRevealedVote(juror2, petition.petitionId));
-        uint256 stake = court.jurorFlatFee();
-        uint256 drawnJurorsBefore = jury.drawnJurors.length;
-        uint256 confirmedJurorsBefore = jury.confirmedJurors.length;
-        assertEq(court.getJurorStakeHeld(juror0, petition.petitionId), stake);
-        uint256 juryReserveBefore = juryPool.getJuryReserve();
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+            // mediator0 will be removed, resulting in a majority decision
+        address mediator0 = panel.confirmedMediators[0];
+        address mediator1 = panel.confirmedMediators[1];
+        address mediator2 = panel.confirmedMediators[2];
+        vm.prank(mediator1);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
+        vm.prank(mediator2);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
+        assertTrue(mediationService.hasRevealedVote(mediator1, dispute.disputeId));
+        assertTrue(mediationService.hasRevealedVote(mediator2, dispute.disputeId));
+        uint256 stake = mediationService.mediatorFlatFee();
+        uint256 drawnMediatorsBefore = panel.drawnMediators.length;
+        uint256 confirmedMediatorsBefore = panel.confirmedMediators.length;
+        assertEq(mediationService.getMediatorStakeHeld(mediator0, dispute.disputeId), stake);
+        uint256 mediationReserveBefore = mediatorPool.getMediationReserve();
 
-        vm.warp(block.timestamp + court.VOTING_PERIOD() + 1);
+        vm.warp(block.timestamp + mediationService.VOTING_PERIOD() + 1);
         vm.expectEmit(true, false, false, true);
-        emit VerdictReached(petition.petitionId, true, 2);
+        emit DecisionReached(dispute.disputeId, true, 2);
         vm.expectEmit(true, false, false, true);
-        emit DelinquentReveal(petition.petitionId, false);
-        court.delinquentReveal(petition.petitionId);
+        emit DelinquentReveal(dispute.disputeId, false);
+        mediationService.delinquentReveal(dispute.disputeId);
 
-        // juror removed
-        jury = court.getJury(petition.petitionId);
-        assertEq(jury.drawnJurors.length, drawnJurorsBefore - 1);
-        for(uint i; i < jury.drawnJurors.length; ++i) {
-            assertFalse(jury.drawnJurors[i] == juror0);
+        // mediator removed
+        panel = mediationService.getPanel(dispute.disputeId);
+        assertEq(panel.drawnMediators.length, drawnMediatorsBefore - 1);
+        for(uint i; i < panel.drawnMediators.length; ++i) {
+            assertFalse(panel.drawnMediators[i] == mediator0);
         }
-        assertEq(jury.confirmedJurors.length, confirmedJurorsBefore - 1);
-        assertEq(court.isConfirmedJuror(petition.petitionId, juror0), false);
+        assertEq(panel.confirmedMediators.length, confirmedMediatorsBefore - 1);
+        assertEq(mediationService.isConfirmedMediator(dispute.disputeId, mediator0), false);
         // stake forfeitted
-        assertEq(court.getJurorStakeHeld(juror0, petition.petitionId), 0);
-        assertEq(juryPool.getJuryReserve(), juryReserveBefore + stake);
+        assertEq(mediationService.getMediatorStakeHeld(mediator0, dispute.disputeId), 0);
+        assertEq(mediatorPool.getMediationReserve(), mediationReserveBefore + stake);
         
-        // verdict rendered (majority)
-        petition = court.getPetition(petition.petitionId);
-        assertEq(uint(petition.phase), uint(Phase.Verdict));
-        assertEq(petition.petitionGranted, true);
+        // decision rendered (majority)
+        dispute = mediationService.getDispute(dispute.disputeId);
+        assertEq(uint(dispute.phase), uint(Phase.Decision));
+        assertEq(dispute.granted, true);
     }
 
     function test_delinquentReveal_tie() public {
@@ -599,70 +599,70 @@ contract CourtJuryTest is Test, TestSetup {
         for(uint i; i < voteInputs.length; ++i) {
             votes[i] = voteInputs[i];
         }
-        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
+        _customDetermination(id_mediation_confirmedPanel_MATIC, votes, false);
         vm.resumeGasMetering();
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-            // juror0 will be removed, resulting in a majority decision
-        address juror0 = jury.confirmedJurors[0];
-        address juror1 = jury.confirmedJurors[1];
-        address juror2 = jury.confirmedJurors[2];
-        vm.prank(juror1);
-        court.revealVote(petition.petitionId, false, "someSalt");
-        vm.prank(juror2);
-        court.revealVote(petition.petitionId, true, "someSalt");
-        assertTrue(court.hasRevealedVote(juror1, petition.petitionId));
-        assertTrue(court.hasRevealedVote(juror2, petition.petitionId));
-        uint256 stake = court.jurorFlatFee();
-        uint256 drawnJurorsBefore = jury.drawnJurors.length;
-        uint256 confirmedJurorsBefore = jury.confirmedJurors.length;
-        assertEq(court.getJurorStakeHeld(juror0, petition.petitionId), stake);
-        uint256 juryReserveBefore = juryPool.getJuryReserve();
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+            // mediator0 will be removed, resulting in a majority decision
+        address mediator0 = panel.confirmedMediators[0];
+        address mediator1 = panel.confirmedMediators[1];
+        address mediator2 = panel.confirmedMediators[2];
+        vm.prank(mediator1);
+        mediationService.revealVote(dispute.disputeId, false, "someSalt");
+        vm.prank(mediator2);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
+        assertTrue(mediationService.hasRevealedVote(mediator1, dispute.disputeId));
+        assertTrue(mediationService.hasRevealedVote(mediator2, dispute.disputeId));
+        uint256 stake = mediationService.mediatorFlatFee();
+        uint256 drawnMediatorsBefore = panel.drawnMediators.length;
+        uint256 confirmedMediatorsBefore = panel.confirmedMediators.length;
+        assertEq(mediationService.getMediatorStakeHeld(mediator0, dispute.disputeId), stake);
+        uint256 mediationReserveBefore = mediatorPool.getMediationReserve();
 
-        vm.warp(block.timestamp + court.VOTING_PERIOD() + 1);
+        vm.warp(block.timestamp + mediationService.VOTING_PERIOD() + 1);
         // vm.expectEmit(true, false, false, true);
-        // emit VerdictReached(petition.petitionId, true, 2);
+        // emit DecisionReached(dispute.disputeId, true, 2);
         vm.expectEmit(true, false, false, true);
-        emit DelinquentReveal(petition.petitionId, true);
-        court.delinquentReveal(petition.petitionId);
+        emit DelinquentReveal(dispute.disputeId, true);
+        mediationService.delinquentReveal(dispute.disputeId);
 
-        // juror removed
-        jury = court.getJury(petition.petitionId);
-        assertEq(jury.drawnJurors.length, drawnJurorsBefore - 1);
-        for(uint i; i < jury.drawnJurors.length; ++i) {
-            assertFalse(jury.drawnJurors[i] == juror0);
+        // mediator removed
+        panel = mediationService.getPanel(dispute.disputeId);
+        assertEq(panel.drawnMediators.length, drawnMediatorsBefore - 1);
+        for(uint i; i < panel.drawnMediators.length; ++i) {
+            assertFalse(panel.drawnMediators[i] == mediator0);
         }
-        assertEq(jury.confirmedJurors.length, confirmedJurorsBefore - 1);
-        assertEq(court.isConfirmedJuror(petition.petitionId, juror0), false);
+        assertEq(panel.confirmedMediators.length, confirmedMediatorsBefore - 1);
+        assertEq(mediationService.isConfirmedMediator(dispute.disputeId, mediator0), false);
         // stake forfeitted
-        assertEq(court.getJurorStakeHeld(juror0, petition.petitionId), 0);
-        assertEq(juryPool.getJuryReserve(), juryReserveBefore + stake);
+        assertEq(mediationService.getMediatorStakeHeld(mediator0, dispute.disputeId), 0);
+        assertEq(mediatorPool.getMediationReserve(), mediationReserveBefore + stake);
         
-        // no verdict rendered (tie)
-        petition = court.getPetition(petition.petitionId);
-        assertEq(uint(petition.phase), uint(Phase.Ruling));
-        assertEq(petition.petitionGranted, false);
-        assertEq(court.votesTied(petition.petitionId), true);
+        // no decision rendered (tie)
+        dispute = mediationService.getDispute(dispute.disputeId);
+        assertEq(uint(dispute.phase), uint(Phase.Determination));
+        assertEq(dispute.granted, false);
+        assertEq(mediationService.votesTied(dispute.disputeId), true);
     }
 
     function test_delinquentReveal_revert() public {
         // wrong phase
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        vm.expectRevert(Court.Court__OnlyDuringRuling.selector);
-        court.delinquentReveal(petition.petitionId);
-        // ruling period still active
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        vm.expectRevert(MediationService.MediationService__OnlyDuringDetermination.selector);
+        mediationService.delinquentReveal(dispute.disputeId);
+        // determination period still active
         vm.pauseGasMetering();
         bool[3] memory voteInputs = [false, false, true];
         bool[] memory votes = new bool[](voteInputs.length);
         for(uint i; i < voteInputs.length; ++i) {
             votes[i] = voteInputs[i];
         }
-        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
+        _customDetermination(id_mediation_confirmedPanel_MATIC, votes, false);
         vm.resumeGasMetering();
-        petition = court.getPetition(petition.petitionId);
-        assertTrue(block.timestamp < petition.rulingStart + court.RULING_PERIOD());
-        vm.expectRevert(Court.Court__RulingPeriodStillActive.selector);
-        court.delinquentReveal(petition.petitionId);
+        dispute = mediationService.getDispute(dispute.disputeId);
+        assertTrue(block.timestamp < dispute.determinationStart + mediationService.DETERMINATION_PERIOD());
+        vm.expectRevert(MediationService.MediationService__DeterminationPeriodStillActive.selector);
+        mediationService.delinquentReveal(dispute.disputeId);
     }
 
     function test_assignArbiter() public {
@@ -672,36 +672,36 @@ contract CourtJuryTest is Test, TestSetup {
         for(uint i; i < voteInputs.length; ++i) {
             votes[i] = voteInputs[i];
         }
-        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        // juror0 will be removed, resulting in a tie
-        address juror1 = jury.confirmedJurors[1];
-        address juror2 = jury.confirmedJurors[2];
-        vm.prank(juror1);
-        court.revealVote(petition.petitionId, false, "someSalt");
-        vm.prank(juror2);
-        court.revealVote(petition.petitionId, true, "someSalt");
+        _customDetermination(id_mediation_confirmedPanel_MATIC, votes, false);
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        // mediator0 will be removed, resulting in a tie
+        address mediator1 = panel.confirmedMediators[1];
+        address mediator2 = panel.confirmedMediators[2];
+        vm.prank(mediator1);
+        mediationService.revealVote(dispute.disputeId, false, "someSalt");
+        vm.prank(mediator2);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
         vm.resumeGasMetering();
-        vm.warp(block.timestamp + court.RULING_PERIOD() + 1);
-        court.delinquentReveal(petition.petitionId);
-        assertEq(court.arbiter(petition.petitionId), address(0));
+        vm.warp(block.timestamp + mediationService.DETERMINATION_PERIOD() + 1);
+        mediationService.delinquentReveal(dispute.disputeId);
+        assertEq(mediationService.arbiter(dispute.disputeId), address(0));
 
-        address arbiter = jury.drawnJurors[jury.drawnJurors.length -1]; // we know this juror is eligible
+        address arbiter = panel.drawnMediators[panel.drawnMediators.length -1]; // we know this mediator is eligible
         vm.expectEmit(true, true, false, false);
-        emit ArbiterAssigned(petition.petitionId, arbiter);
+        emit ArbiterAssigned(dispute.disputeId, arbiter);
         vm.prank(admin1);
-        court.assignArbiter(petition.petitionId, arbiter);
+        mediationService.assignArbiter(dispute.disputeId, arbiter);
 
-        assertEq(court.arbiter(petition.petitionId), arbiter);
+        assertEq(mediationService.arbiter(dispute.disputeId), arbiter);
     }
 
     function test_assignArbiter_revert() public {
         // case not deadlocked
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        vm.expectRevert(Court.Court__CaseNotDeadlocked.selector);
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        vm.expectRevert(MediationService.MediationService__CaseNotDeadlocked.selector);
         vm.prank(admin1);
-        court.assignArbiter(petition.petitionId, admin1);
+        mediationService.assignArbiter(dispute.disputeId, admin1);
 
         vm.pauseGasMetering();
         bool[3] memory voteInputs = [false, false, true];
@@ -709,44 +709,44 @@ contract CourtJuryTest is Test, TestSetup {
         for(uint i; i < voteInputs.length; ++i) {
             votes[i] = voteInputs[i];
         }
-        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        address juror1 = jury.confirmedJurors[1];
-        address juror2 = jury.confirmedJurors[2];
-        vm.prank(juror1);
-        court.revealVote(petition.petitionId, false, "someSalt");
-        vm.prank(juror2);
-        court.revealVote(petition.petitionId, true, "someSalt");
+        _customDetermination(id_mediation_confirmedPanel_MATIC, votes, false);
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        address mediator1 = panel.confirmedMediators[1];
+        address mediator2 = panel.confirmedMediators[2];
+        vm.prank(mediator1);
+        mediationService.revealVote(dispute.disputeId, false, "someSalt");
+        vm.prank(mediator2);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
         vm.resumeGasMetering();
-        vm.warp(block.timestamp + court.RULING_PERIOD() + 1);
-        court.delinquentReveal(petition.petitionId);
+        vm.warp(block.timestamp + mediationService.DETERMINATION_PERIOD() + 1);
+        mediationService.delinquentReveal(dispute.disputeId);
 
         // not admin
-        vm.expectRevert(Court.Court__OnlyAdmin.selector);
+        vm.expectRevert(MediationService.MediationService__OnlyAdmin.selector);
         vm.prank(alice);
-        court.assignArbiter(petition.petitionId, admin1);
-        // invalid arbiter - litigant
-        vm.expectRevert(Court.Court__InvalidArbiter.selector);
+        mediationService.assignArbiter(dispute.disputeId, admin1);
+        // invalid arbiter - disputant
+        vm.expectRevert(MediationService.MediationService__InvalidArbiter.selector);
         vm.prank(admin1);
-        court.assignArbiter(petition.petitionId, petition.defendant);
-        // invalid arbiter - ineligible juror
+        mediationService.assignArbiter(dispute.disputeId, dispute.respondent);
+        // invalid arbiter - ineligible mediator
         vm.prank(admin1);
-        juryPool.pauseJuror();
-        vm.expectRevert(Court.Court__InvalidArbiter.selector);
+        mediatorPool.pauseMediator();
+        vm.expectRevert(MediationService.MediationService__InvalidArbiter.selector);
         vm.prank(admin1);
-        court.assignArbiter(petition.petitionId, admin1);
-        // invalid arbiter - confirmed juror (no double votes)
-        vm.expectRevert(Court.Court__InvalidArbiter.selector);
+        mediationService.assignArbiter(dispute.disputeId, admin1);
+        // invalid arbiter - confirmed mediator (no double votes)
+        vm.expectRevert(MediationService.MediationService__InvalidArbiter.selector);
         vm.prank(admin1);
-        court.assignArbiter(petition.petitionId, jury.confirmedJurors[2]);
+        mediationService.assignArbiter(dispute.disputeId, panel.confirmedMediators[2]);
         // wrong phase
         vm.prank(admin1);
-        court.assignArbiter(petition.petitionId, admin2);
+        mediationService.assignArbiter(dispute.disputeId, admin2);
         vm.prank(admin2);
-        court.breakTie(petition.petitionId, false);
-        vm.expectRevert(Court.Court__OnlyDuringRuling.selector);
+        mediationService.breakTie(dispute.disputeId, false);
+        vm.expectRevert(MediationService.MediationService__OnlyDuringDetermination.selector);
         vm.prank(admin1);
-        court.assignArbiter(petition.petitionId, admin2);
+        mediationService.assignArbiter(dispute.disputeId, admin2);
     }
 
     function test_breakTie() public {
@@ -756,41 +756,41 @@ contract CourtJuryTest is Test, TestSetup {
         for(uint i; i < voteInputs.length; ++i) {
             votes[i] = voteInputs[i];
         }
-        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        address juror1 = jury.confirmedJurors[1];
-        address juror2 = jury.confirmedJurors[2];
-        vm.prank(juror1);
-        court.revealVote(petition.petitionId, false, "someSalt");
-        vm.prank(juror2);
-        court.revealVote(petition.petitionId, true, "someSalt");
-        vm.warp(block.timestamp + court.RULING_PERIOD() + 1);
-        court.delinquentReveal(petition.petitionId);
-        address arbiter = jury.drawnJurors[jury.drawnJurors.length -1]; // we know this juror is eligible
+        _customDetermination(id_mediation_confirmedPanel_MATIC, votes, false);
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        address mediator1 = panel.confirmedMediators[1];
+        address mediator2 = panel.confirmedMediators[2];
+        vm.prank(mediator1);
+        mediationService.revealVote(dispute.disputeId, false, "someSalt");
+        vm.prank(mediator2);
+        mediationService.revealVote(dispute.disputeId, true, "someSalt");
+        vm.warp(block.timestamp + mediationService.DETERMINATION_PERIOD() + 1);
+        mediationService.delinquentReveal(dispute.disputeId);
+        address arbiter = panel.drawnMediators[panel.drawnMediators.length -1]; // we know this mediator is eligible
         vm.prank(admin1);
-        court.assignArbiter(petition.petitionId, arbiter);
+        mediationService.assignArbiter(dispute.disputeId, arbiter);
         vm.resumeGasMetering();
-        assertTrue(court.votesTied(petition.petitionId));
-        assertEq(uint(petition.phase), uint(Phase.Ruling));
-        uint256 jurorFee = court.jurorFlatFee();
-        // uint256 juror1BalBefore = juror1.balance;
-        uint256 juror2FeesOwedBefore = court.getJurorFeesOwed(juror2);
-        uint256 juryReserveBefore = juryPool.getJuryReserve();
+        assertTrue(mediationService.votesTied(dispute.disputeId));
+        assertEq(uint(dispute.phase), uint(Phase.Determination));
+        uint256 mediatorFee = mediationService.mediatorFlatFee();
+        // uint256 mediator1BalBefore = mediator1.balance;
+        uint256 mediator2FeesOwedBefore = mediationService.getMediatorFeesOwed(mediator2);
+        uint256 mediationReserveBefore = mediatorPool.getMediationReserve();
 
         vm.expectEmit(true, true, false, true);
-        emit ArbiterVote(petition.petitionId, arbiter, true);
+        emit ArbiterVote(dispute.disputeId, arbiter, true);
         vm.prank(arbiter);
-        court.breakTie(petition.petitionId, true);
+        mediationService.breakTie(dispute.disputeId, true);
 
-        // verdict rendered
-        petition = court.getPetition(petition.petitionId);
-        assertEq(uint(petition.phase), uint(Phase.Verdict));
-        assertEq(petition.petitionGranted, true);
-        // majority (juror2) paid
-        assertEq(court.getJurorFeesOwed(juror2), juror2FeesOwedBefore + jurorFee);
-        // minority (juror1) fee + forfeitted fee (juror0) transferred
-        assertEq(juryPool.getJuryReserve(), juryReserveBefore + jurorFee + jurorFee);
+        // decision rendered
+        dispute = mediationService.getDispute(dispute.disputeId);
+        assertEq(uint(dispute.phase), uint(Phase.Decision));
+        assertEq(dispute.granted, true);
+        // majority (mediator2) paid
+        assertEq(mediationService.getMediatorFeesOwed(mediator2), mediator2FeesOwedBefore + mediatorFee);
+        // minority (mediator1) fee + forfeitted fee (mediator0) transferred
+        assertEq(mediatorPool.getMediationReserve(), mediationReserveBefore + mediatorFee + mediatorFee);
     }
 
     function test_breakTie_revert() public {
@@ -801,11 +801,11 @@ contract CourtJuryTest is Test, TestSetup {
         for(uint i; i < voteInputs.length; ++i) {
             votes[i] = voteInputs[i];
         }
-        _customRuling(id_arbitration_confirmedJury_MATIC, votes, false);
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(id_arbitration_confirmedJury_MATIC));
-        vm.expectRevert(Court.Court__InvalidArbiter.selector);
+        _customDetermination(id_mediation_confirmedPanel_MATIC, votes, false);
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
+        vm.expectRevert(MediationService.MediationService__InvalidArbiter.selector);
         vm.prank(admin1);
-        court.breakTie(petition.petitionId, true);
+        mediationService.breakTie(dispute.disputeId, true);
     }
 
 }

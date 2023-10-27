@@ -33,13 +33,13 @@ interface MarketplaceIface {
         uint256 _adjustedProjectFee,
         uint256 _providerStakeForfeit
     ) external returns (uint256);
-    function getArbitrationPetitionId(uint256 projectId) external view returns (uint256);
+    function getDisputeId(uint256 projectId) external view returns (uint256);
     function projectIds() external view returns (uint256);
 }
 
-interface CourtIface {
-    function calculateArbitrationFee(bool isAppeal) external view returns (uint256);
-    function payArbitrationFee(uint256 _petitionId, string[] calldata _evidenceURIs) external payable;
+interface MediationServiceIface {
+    function calculateMediationFee(bool isAppeal) external view returns (uint256);
+    function payMediationFee(uint256 _disputeId, string[] calldata _evidenceURIs) external payable;
 }
 
 interface VRFIface {
@@ -63,12 +63,12 @@ contract TestProject is Script {
     string json = vm.readFile("./deploymentInfo.json");
     address marketplaceAddr = vm.parseJsonAddress(json, "MarketplaceAddress");
     address testTokenAddr = vm.parseJsonAddress(json, "TestToken");
-    address courtAddr = vm.parseJsonAddress(json, "CourtAddress");
+    address mediationServiceAddr = vm.parseJsonAddress(json, "MediationServiceAddress");
     address vrfMockAddr = vm.parseJsonAddress(json, "VRFMockAddress");
 
     MarketplaceIface marketplace = MarketplaceIface(marketplaceAddr);
     IERC20 testToken = IERC20(testTokenAddr);
-    CourtIface court = CourtIface(courtAddr);
+    MediationServiceIface mediationService = MediationServiceIface(mediationServiceAddr);
     VRFIface vrf = VRFIface(vrfMockAddr);
 
     function create() public returns (uint256 projectId) {
@@ -120,19 +120,19 @@ contract TestProject is Script {
     }
 
     function payFees(uint256 _id) public {
-        uint256 arbitrationFee = court.calculateArbitrationFee(false);
-        uint256 petitionId = marketplace.getArbitrationPetitionId(_id);
+        uint256 mediationFee = mediationService.calculateMediationFee(false);
+        uint256 disputeId = marketplace.getDisputeId(_id);
         vm.startBroadcast(pk_0);
-        court.payArbitrationFee{value: arbitrationFee}(petitionId, evidence);
+        mediationService.payMediationFee{value: mediationFee}(disputeId, evidence);
         vm.stopBroadcast();
         vm.startBroadcast(pk_1);
         vm.recordLogs();
-        court.payArbitrationFee{value: arbitrationFee}(petitionId, evidence);
+        mediationService.payMediationFee{value: mediationFee}(disputeId, evidence);
         VmSafe.Log[] memory entries = vm.getRecordedLogs(); 
         // console.log(uint(bytes32(entries[1].data)));
         // console.log(uint(bytes32(entries[2].data)));
         uint256 requestId = uint(bytes32(entries[2].data));
-        vrf.fulfillRandomWords(requestId, courtAddr);
+        vrf.fulfillRandomWords(requestId, mediationServiceAddr);
         vm.stopBroadcast();
     }
 
@@ -166,22 +166,22 @@ contract TestProject is Script {
         return projectId;
     }
 
-    function startArbitration(uint256 _projectId) public {
+    function startMediation(uint256 _projectId) public {
         vm.startBroadcast(pk_0);
         marketplace.disputeProject(_projectId,changeOrderProjectFee, changeOrderStakeForfeit);
         vm.stopBroadcast();
 
-        uint256 arbitrationFee = court.calculateArbitrationFee(false);
-        uint256 petitionId = marketplace.getArbitrationPetitionId(_projectId);
+        uint256 mediationFee = mediationService.calculateMediationFee(false);
+        uint256 disputeId = marketplace.getDisputeId(_projectId);
         vm.startBroadcast(pk_0);
-        court.payArbitrationFee{value: arbitrationFee}(petitionId, evidence);
+        mediationService.payMediationFee{value: mediationFee}(disputeId, evidence);
         vm.stopBroadcast();
         vm.startBroadcast(pk_1);
         vm.recordLogs();
-        court.payArbitrationFee{value: arbitrationFee}(petitionId, evidence);
+        mediationService.payMediationFee{value: mediationFee}(disputeId, evidence);
         VmSafe.Log[] memory entries = vm.getRecordedLogs(); 
         uint256 requestId = uint(bytes32(entries[2].data));
-        vrf.fulfillRandomWords(requestId, courtAddr);
+        vrf.fulfillRandomWords(requestId, mediationServiceAddr);
         vm.stopBroadcast();
     }
 

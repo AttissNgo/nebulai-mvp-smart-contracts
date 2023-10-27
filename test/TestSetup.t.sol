@@ -9,8 +9,8 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "../src/Governor.sol";
 import "../src/Whitelist.sol";
-import "../src/JuryPool.sol";
-import "../src/Court.sol";
+import "../src/MediatorPool.sol";
+import "../src/MediationService.sol";
 import "../src/EscrowFactory.sol";
 import "../src/Marketplace.sol";
 import "../src/DataStructuresLibrary.sol";
@@ -29,10 +29,10 @@ contract TestSetup is Test, DataStructuresLibrary {
 
     Whitelist public whitelist;
 
-    JuryPool public juryPool;
-    uint256 public minimumJurorStake = 20 ether;
+    MediatorPool public mediatorPool;
+    uint256 public minimumMediatorStake = 20 ether;
 
-    Court public court;
+    MediationService public mediationService;
 
     EscrowFactory public escrowFactory;
     Marketplace public marketplace;
@@ -97,15 +97,15 @@ contract TestSetup is Test, DataStructuresLibrary {
     uint256 id_approved_change_order_MATIC; 
     uint256 id_approved_change_order_ERC20; 
 
-    // test projects with arbitration
-    uint256 id_arbitration_discovery_MATIC;
-    uint256 id_arbitration_discovery_ERC20;
-    uint256 id_arbitration_jurySelection_MATIC;
-    uint256 id_arbitration_jurySelection_ERC20;
-    uint256 id_arbitration_confirmedJury_MATIC;
-    uint256 id_arbitration_confirmedJury_ERC20;
-    uint256 id_arbitration_committedVotes_MATIC;
-    uint256 id_arbitration_committedVotes_ERC20;
+    // test projects with mediation
+    uint256 id_mediation_disclosure_MATIC;
+    uint256 id_mediation_disclosure_ERC20;
+    uint256 id_mediation_panelSelection_MATIC;
+    uint256 id_mediation_panelSelection_ERC20;
+    uint256 id_mediation_confirmedPanel_MATIC;
+    uint256 id_mediation_confirmedPanel_ERC20;
+    uint256 id_mediation_committedVotes_MATIC;
+    uint256 id_mediation_committedVotes_ERC20;
 
     // test change order
     uint256 changeOrderAdjustedProjectFee = 750 ether;
@@ -116,7 +116,7 @@ contract TestSetup is Test, DataStructuresLibrary {
     uint256 settlementAdjustedProjectFee = 800 ether;
     uint256 settlementProviderStakeForfeit = 0;
 
-    // test arbitration
+    // test mediation
     string[] evidence1 = ["someEvidenceURI", "someOtherEvidenceURI"];
     string[] evidence2 = ["someEvidenceURI2", "someOtherEvidenceURI2"];
 
@@ -129,14 +129,14 @@ contract TestSetup is Test, DataStructuresLibrary {
         vrf.fundSubscription(subscriptionId, 100 ether);
         governor = new Governor(admins, sigsRequired);
         whitelist = new Whitelist(address(governor));
-        juryPool = new JuryPool(address(governor), address(whitelist), minimumJurorStake);
+        mediatorPool = new MediatorPool(address(governor), address(whitelist), minimumMediatorStake);
 
         uint64 nonce = vm.getNonce(admin1);
         address predictedMarketplace = computeCreateAddress(admin1, nonce + 2);
 
-        court = new Court(
+        mediationService = new MediationService(
             address(governor), 
-            address(juryPool),
+            address(mediatorPool),
             address(vrf),
             subscriptionId,
             predictedMarketplace ////////////////
@@ -146,7 +146,7 @@ contract TestSetup is Test, DataStructuresLibrary {
         marketplace = new Marketplace(
             address(governor), 
             address(whitelist), 
-            address(court), 
+            address(mediationService), 
             address(escrowFactory),
             approvedTokens
         );
@@ -180,16 +180,16 @@ contract TestSetup is Test, DataStructuresLibrary {
         }
     }
 
-    function _registerJurors() public {
+    function _registerMediators() public {
         uint256 stakeAmount = 100 ether;
         for(uint i; i < users.length; ++i) {
             vm.prank(users[i]);
-            juryPool.registerAsJuror{value: stakeAmount}();
+            mediatorPool.registerAsMediator{value: stakeAmount}();
             stakeAmount += 10 ether;
         }
         for(uint i; i < admins.length; ++i) {
             vm.prank(admins[i]);
-            juryPool.registerAsJuror{value: stakeAmount}();
+            mediatorPool.registerAsMediator{value: stakeAmount}();
             stakeAmount += 10 ether;
         }
     }
@@ -265,27 +265,27 @@ contract TestSetup is Test, DataStructuresLibrary {
         id_approved_change_order_ERC20 = _project_with_approvedChangeOrder(_projectTemplate(address(usdt)));
     }
 
-    function _initializeArbitrationProjects() public {
+    function _initializeMediationProjects() public {
         vm.deal(buyer, 1000000 ether);
         usdt.mint(buyer, 1000000 ether);
 
-        id_arbitration_discovery_MATIC = _challengedProject(_projectTemplate(address(0)));
-        id_arbitration_discovery_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
-        id_arbitration_jurySelection_MATIC = _challengedProject(_projectTemplate(address(0)));
-        id_arbitration_jurySelection_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
-        id_arbitration_confirmedJury_MATIC = _challengedProject(_projectTemplate(address(0)));
-        id_arbitration_confirmedJury_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
-        id_arbitration_committedVotes_MATIC = _challengedProject(_projectTemplate(address(0)));
-        id_arbitration_committedVotes_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
+        id_mediation_disclosure_MATIC = _challengedProject(_projectTemplate(address(0)));
+        id_mediation_disclosure_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
+        id_mediation_panelSelection_MATIC = _challengedProject(_projectTemplate(address(0)));
+        id_mediation_panelSelection_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
+        id_mediation_confirmedPanel_MATIC = _challengedProject(_projectTemplate(address(0)));
+        id_mediation_confirmedPanel_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
+        id_mediation_committedVotes_MATIC = _challengedProject(_projectTemplate(address(0)));
+        id_mediation_committedVotes_ERC20 = _challengedProject(_projectTemplate(address(usdt)));
         uint256[8] memory ids = [
-            id_arbitration_discovery_ERC20, 
-            id_arbitration_discovery_MATIC,
-            id_arbitration_jurySelection_MATIC,
-            id_arbitration_jurySelection_ERC20,
-            id_arbitration_confirmedJury_ERC20,
-            id_arbitration_confirmedJury_MATIC,
-            id_arbitration_committedVotes_MATIC,
-            id_arbitration_committedVotes_ERC20
+            id_mediation_disclosure_ERC20, 
+            id_mediation_disclosure_MATIC,
+            id_mediation_panelSelection_MATIC,
+            id_mediation_panelSelection_ERC20,
+            id_mediation_confirmedPanel_ERC20,
+            id_mediation_confirmedPanel_MATIC,
+            id_mediation_committedVotes_MATIC,
+            id_mediation_committedVotes_ERC20
         ];
         vm.warp(block.timestamp + marketplace.CHANGE_ORDER_PERIOD());
         for(uint i; i < ids.length; ++i) {
@@ -298,20 +298,20 @@ contract TestSetup is Test, DataStructuresLibrary {
             );
         }
         
-        _payArbitrationFeesAndDrawJurors(id_arbitration_jurySelection_ERC20);
-        _payArbitrationFeesAndDrawJurors(id_arbitration_jurySelection_MATIC);
-        _payArbitrationFeesAndDrawJurors(id_arbitration_confirmedJury_ERC20);
-        _payArbitrationFeesAndDrawJurors(id_arbitration_confirmedJury_MATIC);
-        _payArbitrationFeesAndDrawJurors(id_arbitration_committedVotes_ERC20);
-        _payArbitrationFeesAndDrawJurors(id_arbitration_committedVotes_MATIC);
+        _payMediationFeesAndDrawMediators(id_mediation_panelSelection_ERC20);
+        _payMediationFeesAndDrawMediators(id_mediation_panelSelection_MATIC);
+        _payMediationFeesAndDrawMediators(id_mediation_confirmedPanel_ERC20);
+        _payMediationFeesAndDrawMediators(id_mediation_confirmedPanel_MATIC);
+        _payMediationFeesAndDrawMediators(id_mediation_committedVotes_ERC20);
+        _payMediationFeesAndDrawMediators(id_mediation_committedVotes_MATIC);
 
-        _confirmJury(id_arbitration_confirmedJury_ERC20);
-        _confirmJury(id_arbitration_confirmedJury_MATIC);
-        _confirmJury(id_arbitration_committedVotes_ERC20);
-        _confirmJury(id_arbitration_committedVotes_MATIC);
+        _confirmPanel(id_mediation_confirmedPanel_ERC20);
+        _confirmPanel(id_mediation_confirmedPanel_MATIC);
+        _confirmPanel(id_mediation_committedVotes_ERC20);
+        _confirmPanel(id_mediation_committedVotes_MATIC);
 
-        _commitVotes(id_arbitration_committedVotes_ERC20);
-        _commitVotes(id_arbitration_committedVotes_MATIC);
+        _commitVotes(id_mediation_committedVotes_ERC20);
+        _commitVotes(id_mediation_committedVotes_MATIC);
 
     }
 
@@ -392,89 +392,89 @@ contract TestSetup is Test, DataStructuresLibrary {
     }
 
     // DOES NOT INITIALIZE PROJECT FROM CREATION
-    function _payArbitrationFeesAndDrawJurors(uint256 _projectId) public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(_projectId));
-        require(!petition.feePaidDefendant && !petition.feePaidPlaintiff);
-        vm.prank(petition.plaintiff);
-        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence1);
+    function _payMediationFeesAndDrawMediators(uint256 _projectId) public {
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(_projectId));
+        require(!dispute.feePaidRespondent && !dispute.feePaidClaimant);
+        vm.prank(dispute.claimant);
+        mediationService.payMediationFee{value: dispute.mediationFee}(dispute.disputeId, evidence1);
         vm.recordLogs();
-        vm.prank(petition.defendant);
-        court.payArbitrationFee{value: petition.arbitrationFee}(petition.petitionId, evidence2);
+        vm.prank(dispute.respondent);
+        mediationService.payMediationFee{value: dispute.mediationFee}(dispute.disputeId, evidence2);
         Vm.Log[] memory entries = vm.getRecordedLogs();
         uint256 requestId = uint(bytes32(entries[2].data));
-        vrf.fulfillRandomWords(requestId, address(court));
+        vrf.fulfillRandomWords(requestId, address(mediationService));
     }
 
     // DOES NOT INITIALIZE PROJECT FROM CREATION
-    function _confirmJury(uint256 _projectId) public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(_projectId));
-        require(uint(petition.phase) == uint(Phase.JurySelection));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        require(jury.confirmedJurors.length == 0);
-        uint256 jurorsNeeded = court.jurorsNeeded(petition.petitionId);
-        uint256 flatFee = court.jurorFlatFee();
-        for(uint i; i < jury.drawnJurors.length; ++i) {
-            vm.prank(jury.drawnJurors[i]);
-            court.acceptCase{value: flatFee}(petition.petitionId);
-            jury = court.getJury(petition.petitionId);
-            if(jury.confirmedJurors.length == jurorsNeeded) break;
+    function _confirmPanel(uint256 _projectId) public {
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(_projectId));
+        require(uint(dispute.phase) == uint(Phase.PanelSelection));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        require(panel.confirmedMediators.length == 0);
+        uint256 mediatorsNeeded = mediationService.mediatorsNeeded(dispute.disputeId);
+        uint256 flatFee = mediationService.mediatorFlatFee();
+        for(uint i; i < panel.drawnMediators.length; ++i) {
+            vm.prank(panel.drawnMediators[i]);
+            mediationService.acceptCase{value: flatFee}(dispute.disputeId);
+            panel = mediationService.getPanel(dispute.disputeId);
+            if(panel.confirmedMediators.length == mediatorsNeeded) break;
         }
     }
 
     // DOES NOT INITIALIZE PROJECT FROM CREATION
     function _commitVotes(uint256 _projectId) public {
-        bytes32 juror_0_commit = keccak256(abi.encodePacked(true, "someSalt"));
-        bytes32 juror_1_commit = keccak256(abi.encodePacked(true, "someSalt"));
-        bytes32 juror_2_commit = keccak256(abi.encodePacked(false, "someSalt"));
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(_projectId));
-        require(uint(petition.phase) == uint(Phase.Voting));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        vm.prank(jury.confirmedJurors[0]);
-        court.commitVote(petition.petitionId, juror_0_commit);
-        vm.prank(jury.confirmedJurors[1]);
-        court.commitVote(petition.petitionId, juror_1_commit);
-        vm.prank(jury.confirmedJurors[2]);
-        court.commitVote(petition.petitionId, juror_2_commit);
+        bytes32 mediator_0_commit = keccak256(abi.encodePacked(true, "someSalt"));
+        bytes32 mediator_1_commit = keccak256(abi.encodePacked(true, "someSalt"));
+        bytes32 mediator_2_commit = keccak256(abi.encodePacked(false, "someSalt"));
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(_projectId));
+        require(uint(dispute.phase) == uint(Phase.Voting));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        vm.prank(panel.confirmedMediators[0]);
+        mediationService.commitVote(dispute.disputeId, mediator_0_commit);
+        vm.prank(panel.confirmedMediators[1]);
+        mediationService.commitVote(dispute.disputeId, mediator_1_commit);
+        vm.prank(panel.confirmedMediators[2]);
+        mediationService.commitVote(dispute.disputeId, mediator_2_commit);
     }
 
     // // DOES NOT INITIALIZE PROJECT FROM CREATION
-    // function _renderVerdict(uint256 _projectId, bool _vote0, bool _vote1, bool _vote2) public {
+    // function _renderDecision(uint256 _projectId, bool _vote0, bool _vote1, bool _vote2) public {
 
     // }
 
-    function _customRuling(uint256 _projectId, bool[] memory _votes, bool _revealVotes) public {
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(_projectId));
-        Court.Jury memory jury = court.getJury(petition.petitionId);
-        require(_votes.length == jury.confirmedJurors.length, "mismatched array sizes");
-        for(uint i; i < jury.confirmedJurors.length; ++i) {
-            vm.prank(jury.confirmedJurors[i]);
+    function _customDetermination(uint256 _projectId, bool[] memory _votes, bool _revealVotes) public {
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(_projectId));
+        MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        require(_votes.length == panel.confirmedMediators.length, "mismatched array sizes");
+        for(uint i; i < panel.confirmedMediators.length; ++i) {
+            vm.prank(panel.confirmedMediators[i]);
             bytes32 commit = keccak256(abi.encodePacked(_votes[i], "someSalt"));
-            court.commitVote(petition.petitionId, commit);
+            mediationService.commitVote(dispute.disputeId, commit);
         }
         if(!_revealVotes) return;
-        // if(block.timestamp < petition.votingStart + court.VOTING_PERIOD()) {
-        //     vm.warp(block.timestamp + court.VOTING_PERIOD() + 1);
+        // if(block.timestamp < dispute.votingStart + mediationService.VOTING_PERIOD()) {
+        //     vm.warp(block.timestamp + mediationService.VOTING_PERIOD() + 1);
         // }
-        for(uint i; i < jury.confirmedJurors.length; ++i) {
-            vm.prank(jury.confirmedJurors[i]);
-            court.revealVote(petition.petitionId, _votes[i], "someSalt");
+        for(uint i; i < panel.confirmedMediators.length; ++i) {
+            vm.prank(panel.confirmedMediators[i]);
+            mediationService.revealVote(dispute.disputeId, _votes[i], "someSalt");
         }
     }
 
-    function _discoveryToResolved(uint256 _projectInDiscovery, bool _granted) public returns (uint256) {
-        Project memory project = marketplace.getProject(_projectInDiscovery);
+    function _disclosureToResolved(uint256 _projectInDisclosure, bool _granted) public returns (uint256) {
+        Project memory project = marketplace.getProject(_projectInDisclosure);
         require(project.status == Status.Disputed, "project is not disputed");
-        Petition memory petition = court.getPetition(marketplace.getArbitrationPetitionId(project.projectId));
-        require(petition.phase == Phase.Discovery, "petition not in discovery");
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(project.projectId));
+        require(dispute.phase == Phase.Disclosure, "dispute not in disclosure");
         bool[3] memory voteInputs = [true, false, true];
         if(!_granted) voteInputs = [false, false, true];
         bool[] memory votes = new bool[](voteInputs.length);
         for(uint i; i < voteInputs.length; ++i) {
             votes[i] = voteInputs[i];
         }
-        _payArbitrationFeesAndDrawJurors(project.projectId);
-        _confirmJury(project.projectId);
-        _customRuling(project.projectId, votes, true);
+        _payMediationFeesAndDrawMediators(project.projectId);
+        _confirmPanel(project.projectId);
+        _customDetermination(project.projectId, votes, true);
         return project.projectId;
     }
 
