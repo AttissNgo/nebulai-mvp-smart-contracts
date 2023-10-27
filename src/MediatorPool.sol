@@ -9,7 +9,7 @@ contract MediatorPool {
     IWhitelist public immutable WHITELIST;
 
     /**
-     * @notice determines if a mediator can be drawn for arbitration 
+     * @notice determines if a mediator can be drawn for mediation 
      * Active - the account can be drawn for cases
      * Paused - the account cannot be drawn for cases (mediator can re-activate)
      * Suspended - the account cannot be drawn for cases (only governor can re-activate)
@@ -82,7 +82,7 @@ contract MediatorPool {
     }
 
     /**
-     * @notice mediator can be drawn for arbitration cases
+     * @notice mediator can be drawn for mediation cases
      */
     function registerAsMediator() external payable onlyWhitelisted {
         if(isMediator[msg.sender]) revert MediatorPool__AlreadyRegistered();
@@ -94,7 +94,7 @@ contract MediatorPool {
     }
 
     /**
-     * @notice mediator will no longer be drawn for arbitration until reactivated
+     * @notice mediator will no longer be drawn for mediation until reactivated
      */
     function pauseMediator() external onlyRegistered {
         if(mediatorStatus[msg.sender] != MediatorStatus.Active) revert MediatorPool__MediatorNotActive();
@@ -113,7 +113,7 @@ contract MediatorPool {
     }
 
     /**
-     * @notice add additional funds to stake to increase chances of being drawn for arbitration
+     * @notice add additional funds to stake to increase chances of being drawn for mediation
      */
     function stake() external payable onlyRegistered {
         mediatorPoolStake[msg.sender] += msg.value;

@@ -31,13 +31,13 @@ interface MarketplaceIface {
         uint256 _adjustedProjectFee,
         uint256 _providerStakeForfeit
     ) external returns (uint256);
-    function getArbitrationPetitionId(uint256 projectId) external view returns (uint256);
+    function getDisputeId(uint256 projectId) external view returns (uint256);
     function projectIds() external view returns (uint256);
 }
 
-interface CourtIface {
-    function calculateArbitrationFee(bool isAppeal) external view returns (uint256);
-    function payArbitrationFee(uint256 _petitionId, string[] calldata _evidenceURIs) external payable;
+interface MediationServiceIface {
+    function calculateMediationFee(bool isAppeal) external view returns (uint256);
+    function payMediationFee(uint256 _petitionId, string[] calldata _evidenceURIs) external payable;
 }
 
 interface VRFIface {
@@ -62,12 +62,12 @@ contract TestProjectStorage is Script {
     string json = vm.readFile("./deploymentInfo.json");
     address marketplaceAddr = vm.parseJsonAddress(json, "MarketplaceAddress");
     address testTokenAddr = vm.parseJsonAddress(json, "TestToken");
-    address courtAddr = vm.parseJsonAddress(json, "CourtAddress");
+    address mediationserviceAddr = vm.parseJsonAddress(json, "MediationServiceAddress");
     address vrfMockAddr = vm.parseJsonAddress(json, "VRFMockAddress");
 
     MarketplaceIface marketplace = MarketplaceIface(marketplaceAddr);
     IERC20 testToken = IERC20(testTokenAddr);
-    CourtIface court = CourtIface(courtAddr);
+    MediationServiceIface mediationservice = MediationServiceIface(mediationserviceAddr);
     VRFIface vrf = VRFIface(vrfMockAddr);
 }
 
@@ -100,7 +100,7 @@ contract CreateTestProjects is Script, TestProjectStorage {
     }
 }
 
-contract InitiateArbitration is Script, TestProjectStorage {
+contract InitiateMediation is Script, TestProjectStorage {
 
     // make sure block timestamp has been advanced in anvil!
 
@@ -117,25 +117,25 @@ contract InitiateArbitration is Script, TestProjectStorage {
     }
 }
 
-contract PayArbitrationFees is Script, TestProjectStorage {
+contract PayMediationFees is Script, TestProjectStorage {
 
     uint256 latestProjectId = marketplace.projectIds();
 
     function run() public {
-        uint256 arbitrationFee = court.calculateArbitrationFee(false);
-        uint256 petitionId = marketplace.getArbitrationPetitionId(latestProjectId);
+        uint256 mediationFee = mediationservice.calculateMediationFee(false);
+        uint256 petitionId = marketplace.getDisputeId(latestProjectId);
         vm.startBroadcast(pk_0);
-        court.payArbitrationFee{value: arbitrationFee}(petitionId, evidence);
+        mediationservice.payMediationFee{value: mediationFee}(petitionId, evidence);
         vm.stopBroadcast();
         vm.startBroadcast(pk_1);
-        court.payArbitrationFee{value: arbitrationFee}(petitionId, evidence);
+        mediationservice.payMediationFee{value: mediationFee}(petitionId, evidence);
         // VmSafe.Log[] memory entries = vm.getRecordedLogs(); 
         // uint256 requestId = uint(bytes32(entries[1].));
         // // uint256 requestId = uint(bytes32(entries[2].data));
         vm.stopBroadcast();
 
         vm.startBroadcast(pk_0);
-        vrf.fulfillRandomWords(latestProjectId, courtAddr);
+        vrf.fulfillRandomWords(latestProjectId, mediationserviceAddr);
         vm.stopBroadcast();
     }
 }
