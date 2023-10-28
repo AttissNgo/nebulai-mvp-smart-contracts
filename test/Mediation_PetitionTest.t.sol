@@ -264,7 +264,7 @@ contract MediationServiceDisputeTest is Test, TestSetup {
         for(uint i; i < voteInputs.length; ++i) {
             votes[i] = voteInputs[i];
         }
-        _customDetermination(id_mediation_confirmedPanel_MATIC, votes, true);
+        _customReveal(id_mediation_confirmedPanel_MATIC, votes, true);
         Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
         assertEq(uint(dispute.phase), uint(Phase.Decision));
         assertEq(dispute.granted, false);
@@ -288,7 +288,7 @@ contract MediationServiceDisputeTest is Test, TestSetup {
         for(uint i; i < voteInputs.length; ++i) {
             votes[i] = voteInputs[i];
         }
-        _customDetermination(id_mediation_confirmedPanel_ERC20, votes, true);
+        _customReveal(id_mediation_confirmedPanel_ERC20, votes, true);
         dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_ERC20));
         assertEq(uint(dispute.phase), uint(Phase.Decision));
         assertEq(dispute.granted, true);
@@ -318,7 +318,7 @@ contract MediationServiceDisputeTest is Test, TestSetup {
         for(uint i; i < voteInputs.length; ++i) {
             votes[i] = voteInputs[i];
         }
-        _customDetermination(id_mediation_confirmedPanel_MATIC, votes, true);
+        _customReveal(id_mediation_confirmedPanel_MATIC, votes, true);
         dispute = mediationService.getDispute(dispute.disputeId);
         
         // not disputant
@@ -378,7 +378,7 @@ contract MediationServiceDisputeTest is Test, TestSetup {
         vm.expectEmit(true, true, false, true);
         emit AppealCreated(currentDisputeId + 1, marketplace.getDisputeId(project.projectId), project.projectId);
         vm.prank(project.provider);
-        uint256 newDisputeId = marketplace.appealDetermination(project.projectId);
+        uint256 newDisputeId = marketplace.appealReveal(project.projectId);
 
         // new dispute created
         Dispute memory newDispute = mediationService.getDispute(newDisputeId);

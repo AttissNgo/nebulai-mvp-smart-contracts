@@ -20,7 +20,7 @@ contract DataStructuresLibrary {
      * Appealed - the correctness of the mediationService's decision is challenged -> a new mediation case is opened
      * Resolved_ChangeOrder - escrow releases funds according to change order
      * Resolved_Mediation - escrow releases funds according to mediationService dispute
-     * Resolved_DelinquentPayment - escrow releases funds according to original agreement
+     * Resolved_ReviewOverdue - escrow releases funds according to original agreement
      * Resolved_MediationDismissed - escrow releases funds according to original agreement
      */
     enum Status { 
@@ -35,7 +35,7 @@ contract DataStructuresLibrary {
         Appealed, 
         Resolved_ChangeOrder, 
         Resolved_Mediation, 
-        Resolved_DelinquentPayment, 
+        Resolved_ReviewOverdue, 
         Resolved_MediationDismissed 
     }
 
@@ -84,8 +84,8 @@ contract DataStructuresLibrary {
      * Disclosure - evidence may be submitted (after paying mediation fee)
      * PanelSelection - panel is drawn randomly and drawn mediators may accept the case
      * Voting - mediators commit a hidden vote
-     * Determination - mediators reveal their votes
-     * Decision - all votes have been counted and a determination is made
+     * Reveal - mediators reveal their votes
+     * Decision - all votes have been counted and a reveal is made
      * DefaultDecision - one party does not pay mediation fee, dispute is ruled in favor of paying party
      * Dismissed - case is invalid and Marketplace reverts to original project conditions
      * SettledExternally - case was settled by change order in Marketplace and mediation does not progress
@@ -94,7 +94,7 @@ contract DataStructuresLibrary {
         Disclosure,
         PanelSelection, 
         Voting, 
-        Determination, 
+        Reveal, 
         Decision,
         DefaultDecision, 
         Dismissed, 
@@ -114,11 +114,16 @@ contract DataStructuresLibrary {
         uint256 disclosureStart;
         uint256 selectionStart;
         uint256 votingStart;
-        uint256 determinationStart;
+        uint256 revealStart;
         uint256 decisionRenderedDate;
         bool isAppeal;
         bool granted;
         Phase phase;
         string[] evidence;
+    }
+
+    struct Panel {
+        address[] drawnMediators;
+        address[] confirmedMediators;
     }
 }

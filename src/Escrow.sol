@@ -112,7 +112,7 @@ contract Escrow is DataStructuresLibrary {
             status == Status.Approved ||
             status == Status.Resolved_ChangeOrder ||
             status == Status.Resolved_Mediation ||
-            status == Status.Resolved_DelinquentPayment ||
+            status == Status.Resolved_ReviewOverdue ||
             status == Status.Resolved_MediationDismissed
         ) return true;
         return false;
@@ -131,7 +131,7 @@ contract Escrow is DataStructuresLibrary {
         } 
         else if(
             status == Status.Approved || 
-            status == Status.Resolved_DelinquentPayment ||
+            status == Status.Resolved_ReviewOverdue ||
             status == Status.Resolved_MediationDismissed
         ) {
             if(_user == PROVIDER) {

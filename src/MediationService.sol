@@ -34,10 +34,10 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     uint32 public numWords = 2; 
     mapping(uint256 => uint256) public vrfRequestToDispute;
 
-    struct Panel {
-        address[] drawnMediators;
-        address[] confirmedMediators;
-    }
+    // struct Panel {
+    //     address[] drawnMediators;
+    //     address[] confirmedMediators;
+    // }
 
     Counters.Counter public disputeIds;
     mapping(uint256 => Dispute) private disputes; // disputeId => Dispute
@@ -53,7 +53,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     uint24 public constant DISCLOSURE_PERIOD = 7 days;
     uint24 public constant PANEL_SELECTION_PERIOD = 3 days;
     uint24 public constant VOTING_PERIOD = 4 days;
-    uint24 public constant DETERMINATION_PERIOD = 3 days;
+    uint24 public constant REVEAL_PERIOD = 3 days;
 
     event DisputeCreated(uint256 indexed disputeId, uint256 projectId);
     event AppealCreated(uint256 indexed disputeId, uint256 indexed originalDisputeId, uint256 projectId);
@@ -65,7 +65,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     event MediatorConfirmed(uint256 indexed disputeId, address mediatorAddress);
     event VotingInitiated(uint256 indexed disputeId);
     event VoteCommitted(uint256 indexed disputeId, address indexed mediator, bytes32 commit);
-    event DeterminationInitiated(uint256 indexed disputeId);
+    event RevealInitiated(uint256 indexed disputeId);
     event VoteRevealed(uint256 indexed disputeId, address indexed mediator, bool vote);
     event DecisionReached(uint256 indexed disputeId, bool decision, uint256 majorityVotes);
     event MediatorFeesClaimed(address indexed mediator, uint256 amount);
@@ -74,7 +74,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     event SettledExternally(uint256 indexed disputeId);
     event DefaultDecisionEntered(uint256 indexed disputeId, address indexed claimedBy, bool decision);
     event MediatorRemoved(uint256 indexed disputeId, address indexed mediator);
-    event DelinquentReveal(uint256 indexed disputeId, bool deadlocked);
+    event RevealOverdue(uint256 indexed disputeId, bool deadlocked);
     event ArbiterAssigned(uint256 indexed disputeId, address indexed arbiter);
     event ArbiterVote(uint256 indexed disputeId, address indexed arbiter, bool vote);
 
@@ -94,7 +94,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     error MediationService__OnlyPrevailingParty();
     error MediationService__MediationFeeAlreadyReclaimed();
     error MediationService__DisputeDoesNotExist();
-    error MediationService__DeterminationCannotBeAppealed();
+    error MediationService__RevealCannotBeAppealed();
     error MediationService__FeesNotOverdue();
     error MediationService__ProjectIsNotDisputed();
     error MediationService__OnlyDuringDisclosure();
@@ -103,9 +103,9 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     error MediationService__PanelAlreadyRedrawn();
     error MediationService__PanelNotRedrawn();
     error MediationService__VotingPeriodStillActive();
-    error MediationService__NoDelinquentCommits();
-    error MediationService__OnlyDuringDetermination();
-    error MediationService__DeterminationPeriodStillActive();
+    error MediationService__NoOverdueCommits();
+    error MediationService__OnlyDuringReveal();
+    error MediationService__RevealPeriodStillActive();
     error MediationService__CaseNotDeadlocked();
     error MediationService__InvalidArbiter();
     // mediator actions
@@ -268,14 +268,14 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     /**
      *  @notice creates new 'appeal' dispute with project/dispute information from original dispute 
      *  mediation fee is higher to compensate larger panel
-     *  @dev can only be called from Marketplace appealDetermination()
+     *  @dev can only be called from Marketplace appealReveal()
      *  @return disputeID of new 'appeal' dispute 
      */
     function appeal(uint256 _projectId) external onlyMarketplace returns (uint256) {
         uint256 originalDisputeId = IMarketplace(msg.sender).getDisputeId(_projectId); 
         if(originalDisputeId == 0) revert MediationService__DisputeDoesNotExist();
         Dispute memory originalDispute = getDispute(originalDisputeId);
-        if(originalDispute.isAppeal) revert MediationService__DeterminationCannotBeAppealed();
+        if(originalDispute.isAppeal) revert MediationService__RevealCannotBeAppealed();
         disputeIds.increment(); 
         uint256 disputeId = disputeIds.current();
         Dispute memory dispute;
@@ -440,13 +440,13 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      */
     function _allVotesCommitted(uint256 _disputeId) private {
         Dispute storage dispute = disputes[_disputeId];
-        dispute.phase = Phase.Determination;
-        dispute.determinationStart = block.timestamp;
-        emit DeterminationInitiated(_disputeId);
+        dispute.phase = Phase.Reveal;
+        dispute.revealStart = block.timestamp;
+        emit RevealInitiated(_disputeId);
     }
 
     /**
-     * @dev called internally when a mediator revelas vote or when delinquentReveal() is called
+     * @dev called internally when a mediator revelas vote or when revealOverdue() is called
      * @return votesFor number of votes in favor of dispute
      * @return votesAgainst number of votes against dispute
      */
@@ -564,7 +564,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      */
     function revealVote(uint256 _disputeId, bool _vote, string calldata _salt) external {
         if(!isConfirmedMediator(_disputeId, msg.sender)) revert MediationService__InvalidMediator();
-        if(getDispute(_disputeId).phase != Phase.Determination) revert MediationService__CannotRevealBeforeAllVotesCommitted();
+        if(getDispute(_disputeId).phase != Phase.Reveal) revert MediationService__CannotRevealBeforeAllVotesCommitted();
         if(hasRevealedVote(msg.sender, _disputeId)) revert MediationService__AlreadyRevealed();
         bytes32 reveal = keccak256(abi.encodePacked(_vote, _salt));
         if(reveal != getCommit(msg.sender, _disputeId)) revert MediationService__RevealDoesNotMatchCommit();
@@ -639,12 +639,12 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
 
     /**
      * @notice removes mediator who does not commit vote within VOTING_PERIOD
-     * @notice transfers stake of delinquent mediator to Panel Reserve
+     * @notice transfers stake of overdue mediator to Panel Reserve
      * @dev restarts voting period so remaining drawn mediators may accept case and vote
      */
-    function delinquentCommit(uint256 _disputeId) external {
+    function overdueCommit(uint256 _disputeId) external {
         Dispute storage dispute = disputes[_disputeId];
-        if(dispute.phase != Phase.Voting) revert MediationService__NoDelinquentCommits();
+        if(dispute.phase != Phase.Voting) revert MediationService__NoOverdueCommits();
         if(block.timestamp < dispute.votingStart + VOTING_PERIOD) revert MediationService__VotingPeriodStillActive();
         Panel memory panel = getPanel(dispute.disputeId);
         for(uint i; i < panel.confirmedMediators.length; ++i) {
@@ -659,16 +659,16 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     }
 
     /**
-     * @notice removes mediators who fail to reveal hidden vote during DETERMINATION_PERIOD
+     * @notice removes mediators who fail to reveal hidden vote during REVEAL_PERIOD
      * @notice removed mediator's stake will be forfeitted and transferred to Panel Reserve
-     * @notice if a majority can still be reached without the delinquent mediator's vote, a decision will be rendered
+     * @notice if a majority can still be reached without the overdue mediator's vote, a decision will be rendered
      * @notice if the votes are tied, an arbiter may be assigned by Nebulai to break the tie
      * @dev if all votes are revealed, phase will have advanced and function will revert
      */
-    function delinquentReveal(uint256 _disputeId) external {
+    function revealOverdue(uint256 _disputeId) external {
         Dispute memory dispute = getDispute(_disputeId);
-        if(dispute.phase != Phase.Determination) revert MediationService__OnlyDuringDetermination();
-        if(block.timestamp < dispute.determinationStart + DETERMINATION_PERIOD) revert MediationService__DeterminationPeriodStillActive();
+        if(dispute.phase != Phase.Reveal) revert MediationService__OnlyDuringReveal();
+        if(block.timestamp < dispute.revealStart + REVEAL_PERIOD) revert MediationService__RevealPeriodStillActive();
         (uint256 votesFor, uint256 votesAgainst) = _countVotes(dispute.disputeId);
         uint256 votesNeeded = mediatorsNeeded(dispute.disputeId);
         uint256 totalStakeForfeits; 
@@ -687,7 +687,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
             votesTied[dispute.disputeId] = true;
             mediatorPool.fundMediationReserve{value: totalStakeForfeits}(); 
         }  
-        emit DelinquentReveal(dispute.disputeId, votesTied[dispute.disputeId]);      
+        emit RevealOverdue(dispute.disputeId, votesTied[dispute.disputeId]);      
     }
 
     /**
@@ -729,7 +729,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
         if(!IGovernor(GOVERNOR).isAdmin(msg.sender)) revert MediationService__OnlyAdmin();
         Dispute memory dispute = getDispute(_disputeId);
         if(!votesTied[dispute.disputeId]) revert MediationService__CaseNotDeadlocked();
-        if(dispute.phase != Phase.Determination) revert MediationService__OnlyDuringDetermination();
+        if(dispute.phase != Phase.Reveal) revert MediationService__OnlyDuringReveal();
         if(_arbiter == dispute.claimant || _arbiter == dispute.respondent) revert MediationService__InvalidArbiter();
         if(!mediatorPool.isEligible(_arbiter)) revert MediationService__InvalidArbiter();
         if(isConfirmedMediator(dispute.disputeId, _arbiter)) revert MediationService__InvalidArbiter();
@@ -739,11 +739,11 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
 
     /**
      * @notice assigned arbiter breaks tie on a deadlocked case
-     * @dev if case is not marked deadlocked via delinquentReveal(), there can be no assigned arbiter and function will revert
+     * @dev if case is not marked deadlocked via revealOverdue(), there can be no assigned arbiter and function will revert
      */
     function breakTie(uint256 _disputeId, bool _arbiterVote) external {
         Dispute memory dispute = getDispute(_disputeId);
-        if(dispute.phase != Phase.Determination) revert MediationService__OnlyDuringDetermination();
+        if(dispute.phase != Phase.Reveal) revert MediationService__OnlyDuringReveal();
         if(msg.sender != arbiter[dispute.disputeId]) revert MediationService__InvalidArbiter();
         (uint256 votesFor, uint256 votesAgainst) = _countVotes(dispute.disputeId);
         (_arbiterVote == true) ? ++votesFor : ++votesAgainst;

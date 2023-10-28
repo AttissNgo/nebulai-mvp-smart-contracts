@@ -90,7 +90,7 @@ contract Marketplace is DataStructuresLibrary {
     event ProjectChallenged(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectDisputed(uint256 indexed projectId, address indexed buyer, address indexed provider, uint256 disputeId);
     event ProjectAppealed(uint256 indexed projectId, uint256 indexed disputeId, address appealedBy);
-    event DelinquentPayment(uint256 indexed projectId, address indexed buyer, address indexed provider);
+    event ReviewOverdue(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ChangeOrderProposed(uint256 indexed projectId);
     event ChangeOrderApproved(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ChangeOrderRetracted(uint256 indexed projectId, address indexed retractedBy);
@@ -125,7 +125,7 @@ contract Marketplace is DataStructuresLibrary {
     error Marketplace__ProjectCannotBeChallenged();
     error Marketplace__ProjectIsNotOverdue();
     error Marketplace__ProjectReviewPeriodEnded();
-    error Marketplace__PaymentIsNotDelinquent();
+    error Marketplace__ReviewNotOverdue();
     // change orders
     error Marketplace__ChangeOrderCannotBeProposed();
     error Marketplace__ChangeOrderAlreadyExists();
@@ -373,14 +373,14 @@ contract Marketplace is DataStructuresLibrary {
      * @notice Project is closed and Escrow releases funds according to Project details
      * @notice can only be called after reviewPeriod has elapsed and Buyer has not approved or challenged
      */
-    function delinquentPayment(uint256 _projectId) external {
+    function reviewOverdue(uint256 _projectId) external {
         Project storage p = projects[_projectId];
         if(msg.sender != p.provider) revert Marketplace__OnlyProvider();
         if(p.status != Status.Completed || block.timestamp < p.dateCompleted + p.reviewPeriodLength) {
-            revert Marketplace__PaymentIsNotDelinquent();
+            revert Marketplace__ReviewNotOverdue();
         }
-        p.status = Status.Resolved_DelinquentPayment;
-        emit DelinquentPayment(_projectId, p.buyer, p.provider); 
+        p.status = Status.Resolved_ReviewOverdue;
+        emit ReviewOverdue(_projectId, p.buyer, p.provider); 
     }
 
     ///////////////////////
@@ -431,7 +431,7 @@ contract Marketplace is DataStructuresLibrary {
      * @notice can only called between rendering of original decision and end of APPEAL_PERIOD
      * @return disputeID identifier of Dispute in MediationService contract
      */
-    function appealDetermination(uint256 _projectId) external returns (uint256) {
+    function appealReveal(uint256 _projectId) external returns (uint256) {
         Project storage p = projects[_projectId];
         if(msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
         if(p.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();

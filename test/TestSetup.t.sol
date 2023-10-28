@@ -442,7 +442,7 @@ contract TestSetup is Test, DataStructuresLibrary {
 
     // }
 
-    function _customDetermination(uint256 _projectId, bool[] memory _votes, bool _revealVotes) public {
+    function _customReveal(uint256 _projectId, bool[] memory _votes, bool _revealVotes) public {
         Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(_projectId));
         MediationService.Panel memory panel = mediationService.getPanel(dispute.disputeId);
         require(_votes.length == panel.confirmedMediators.length, "mismatched array sizes");
@@ -474,7 +474,7 @@ contract TestSetup is Test, DataStructuresLibrary {
         }
         _payMediationFeesAndDrawMediators(project.projectId);
         _confirmPanel(project.projectId);
-        _customDetermination(project.projectId, votes, true);
+        _customReveal(project.projectId, votes, true);
         return project.projectId;
     }
 

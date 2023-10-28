@@ -17,7 +17,7 @@ contract MarketplaceProjectTest is Test, TestSetup {
     event ProjectApproved(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectChallenged(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectDisputed(uint256 indexed projectId, address indexed buyer, address indexed provider, uint256 disputeId);
-    event DelinquentPayment(uint256 indexed projectId, address indexed buyer, address indexed provider);
+    event ReviewOverdue(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectAppealed(uint256 indexed projectId, uint256 indexed disputeId, address appealedBy);
     event ResolvedByMediation(uint256 indexed projectId, uint256 indexed disputeId);
     event ResolvedByDismissedCase(uint256 indexed projectId, uint256 indexed disputeId);
@@ -606,31 +606,31 @@ contract MarketplaceProjectTest is Test, TestSetup {
     }
 
     //////////////////////////////
-    ///   DELINQUENT PAYMENT   ///
+    ///   OVERDUE PAYMENT   ///
     //////////////////////////////
 
-    function test_delinquentPayment() public {
+    function test_reviewOverdue() public {
         Project memory project = marketplace.getProject(id_complete_MATIC);
         vm.warp(block.timestamp + project.reviewPeriodLength + 1);
 
         vm.prank(project.provider);
-        marketplace.delinquentPayment(project.projectId);
+        marketplace.reviewOverdue(project.projectId);
 
         project = marketplace.getProject(id_complete_MATIC);
-        assertEq(uint(project.status), uint(Status.Resolved_DelinquentPayment));
+        assertEq(uint(project.status), uint(Status.Resolved_ReviewOverdue));
     }
 
-    function test_delinquentPayment_revert() public {
+    function test_reviewOverdue_revert() public {
         Project memory project = marketplace.getProject(id_complete_MATIC);
-        // not delinquent
-        vm.expectRevert(Marketplace.Marketplace__PaymentIsNotDelinquent.selector);
+        // not overdue
+        vm.expectRevert(Marketplace.Marketplace__ReviewNotOverdue.selector);
         vm.prank(project.provider);
-        marketplace.delinquentPayment(project.projectId);
+        marketplace.reviewOverdue(project.projectId);
         // not provider
         vm.warp(block.timestamp + project.reviewPeriodLength + 1);
         vm.expectRevert(Marketplace.Marketplace__OnlyProvider.selector);
         vm.prank(project.buyer);
-        marketplace.delinquentPayment(project.projectId);
+        marketplace.reviewOverdue(project.projectId);
     }
 
 }

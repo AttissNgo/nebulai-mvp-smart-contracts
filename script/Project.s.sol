@@ -5,6 +5,7 @@ import "forge-std/Script.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "forge-std/console.sol";
 import "src/DataStructuresLibrary.sol";
+import "src/Interfaces/IMediationService.sol";
 
 interface MarketplaceIface {
     function calculateNebulaiTxFee(uint256 _projectFee) external view returns (uint256);
@@ -32,11 +33,12 @@ interface MarketplaceIface {
     function getProject(uint256) external view returns (DataStructuresLibrary.Project memory);
 }
 
-interface MediationServiceIface {
-    function getDispute(uint256) external returns (DataStructuresLibrary.Dispute memory);
-    function calculateMediationFee(bool isAppeal) external view returns (uint256);
-    function payMediationFee(uint256 _petitionId, string[] calldata _evidenceURIs) external payable;
-}
+// interface MediationServiceIface {
+//     function getDispute(uint256) external returns (DataStructuresLibrary.Dispute memory);
+//     function calculateMediationFee(bool isAppeal) external view returns (uint256);
+//     function payMediationFee(uint256 _petitionId, string[] calldata _evidenceURIs) external payable;
+//     function getPanel(uint256 _disputeId) external view returns (DataStructuresLibrary.Panel memory);
+// }
 
 interface VRFIface {
     function fulfillRandomWords(uint256 _requestId, address _consumer) external;
@@ -66,7 +68,8 @@ contract ProjectStorage is Script, DataStructuresLibrary {
 
     MarketplaceIface marketplace = MarketplaceIface(marketplaceAddr);
     IERC20 testToken = IERC20(testTokenAddr);
-    MediationServiceIface mediationService = MediationServiceIface(mediationServiceAddr);
+    // MediationServiceIface mediationService = MediationServiceIface(mediationServiceAddr);
+    IMediationService mediationService = IMediationService(mediationServiceAddr);
     VRFIface vrf = VRFIface(vrfMockAddr);
 
     address[] public anvilAddresses = [
@@ -118,26 +121,16 @@ contract ProjectStorage is Script, DataStructuresLibrary {
 
 contract CreateProject is Script, ProjectStorage {
 
-    function getWallet(address _user) public returns (address) {
-        address walletAddr;        
-        for(uint i; i < anvilAddresses.length; ++i) {
-            if(anvilAddresses[i] == _user) {
-                walletAddr = vm.rememberKey(anvilPKs[i]);
-            }
-        }
-        require(walletAddr != address(0), "address not found");
-        return walletAddr;
-    }
-
-    function createProject(
-        uint256 _buyerPKindex,
-        uint256 _providerPKindex
-    ) 
-        public 
-        returns (uint256)
+    uint nonce = 1;
+    
+    /**
+     * creates project with random buyer and provider from anvil addresses
+     */
+    function createProject() public returns (uint256)
     {
-        address buyer = vm.rememberKey(anvilPKs[_buyerPKindex]);
-        address provider = vm.rememberKey(anvilPKs[_providerPKindex]);
+        // address buyer = vm.rememberKey(anvilPKs[_buyerPKindex]);
+        // address provider = vm.rememberKey(anvilPKs[_providerPKindex]);
+        (address buyer, address provider) = randomBuyerAndProvider();
         vm.startBroadcast(buyer);
         uint256 txFee = marketplace.calculateNebulaiTxFee(projectFee);
         testToken.approve(marketplaceAddr, projectFee + txFee);
@@ -146,7 +139,7 @@ contract CreateProject is Script, ProjectStorage {
             testTokenAddr,
             projectFee,
             providerStake,
-            block.timestamp + 7 days,
+            block.timestamp + 10 days,
             reviewPeriodLength,
             detailsURI
         );
@@ -222,81 +215,48 @@ contract CreateProject is Script, ProjectStorage {
     }
 
     function createMultipleProjects() public {
-        uint256 nonce;
         // created
-        uint256 indexBuyer = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        uint256 indexProvider = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        uint256 projectId = createProject(indexBuyer, indexProvider);
+        uint256 projectId = createProject();
         // cancelled
-        indexBuyer = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        indexProvider = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        projectId = createProject(indexBuyer, indexProvider);
+        projectId = createProject();
         cancelProject(projectId);
         // active
-        indexBuyer = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        indexProvider = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        projectId = createProject(indexBuyer, indexProvider);
+        projectId = createProject();
         activateProject(projectId);
         // discontinued
-        indexBuyer = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        indexProvider = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        projectId = createProject(indexBuyer, indexProvider);
+        projectId = createProject();
         activateProject(projectId);
         discontinueProject(projectId);
         // complete 
-        indexBuyer = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        indexProvider = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        projectId = createProject(indexBuyer, indexProvider);
+        projectId = createProject();
         activateProject(projectId);
         completeProject(projectId);
         // approved
-        indexBuyer = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        indexProvider = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        projectId = createProject(indexBuyer, indexProvider);
+        projectId = createProject();
         activateProject(projectId);
         completeProject(projectId);
         approveProject(projectId);
-        // challenged
-        indexBuyer = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        indexProvider = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-        ++nonce;
-        projectId = createProject(indexBuyer, indexProvider);
-        activateProject(projectId);
-        completeProject(projectId);
-        challengeProject(projectId);
-        // a few more challenged projects
-        for(uint i; i < 5; ++i) {
-            indexBuyer = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-            ++nonce;
-            indexProvider = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
-            ++nonce;
-            projectId = createProject(indexBuyer, indexProvider);
+        // challenged - create 10 projects!
+        for(uint i; i < 10; ++i) {
+            projectId = createProject();
             activateProject(projectId);
             completeProject(projectId);
             challengeProject(projectId);
         }
     }
 
-    function disputeAllChallengedProjects() public {
-        // make sure to advance time before calling
+    function createMultipleDisputes() public {
+        // make sure to advance time before calling!!!
+        bool oneChallengedProjectPreserved = false;
         uint256 numProjects = marketplace.projectIds();
         for(uint i = 1; i <= numProjects; ++i) {
             Project memory project = marketplace.getProject(i);
             if(project.status == Status.Challenged) {
-                disputeProject(i);
+                if(!oneChallengedProjectPreserved) {
+                    oneChallengedProjectPreserved = true;
+                } else {
+                    disputeProject(i);
+                }
             }
         }
     }
@@ -310,7 +270,7 @@ contract CreateProject is Script, ProjectStorage {
         Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(project.projectId));
         address claimant = getWallet(dispute.claimant);
         address respondent = getWallet(dispute.respondent);
-        uint256 mediationFee = mediationService.calculateMediationFee(false);
+        uint256 mediationFee = mediationService.calculateMediationFee(dispute.isAppeal);
         vm.startBroadcast(claimant);
         mediationService.payMediationFee{value: mediationFee}(dispute.disputeId, evidence);
         vm.stopBroadcast();
@@ -318,15 +278,162 @@ contract CreateProject is Script, ProjectStorage {
         vm.recordLogs();
         mediationService.payMediationFee{value: mediationFee}(dispute.disputeId, evidence);
         VmSafe.Log[] memory entries = vm.getRecordedLogs(); 
-        // console.log(uint(bytes32(entries[1].data)));
-        // console.log(uint(bytes32(entries[2].data)));
         uint256 requestId = uint(bytes32(entries[2].data));
         vrf.fulfillRandomWords(requestId, mediationServiceAddr);
+        console.log("fees paid and mediators selected");
+        Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        console.log("drawn mediators: ");
+        for(uint i; i < panel.drawnMediators.length; ++i) {
+            console.log(panel.drawnMediators[i]);
+        }
         vm.stopBroadcast();
     }
 
-    function resolveMediation(uint256 _projectId, bool _petitionGranted) public {
+    function mediatorsAccept(uint256 _projectId) public {
+        Project memory project = marketplace.getProject(_projectId);
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(project.projectId));
+        Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        for(uint i; i < mediationService.mediatorsNeeded(dispute.disputeId); ++i) {
+            address mediator = getWallet(panel.drawnMediators[i]);
+            vm.startBroadcast(mediator);
+            mediationService.acceptCase{value: mediationService.mediatorFlatFee()}(dispute.disputeId);
+            vm.stopBroadcast();
+        } 
+        console.log("mediators confirmed");
+        panel = mediationService.getPanel(dispute.disputeId);
+        console.log("confirmed mediators: ");
+        for(uint i; i < panel.confirmedMediators.length; ++i) {
+            console.log(panel.confirmedMediators[i]);
+        }
+    } 
 
+    function mediatorsCommitVotes(uint256 _projectId, bool _petitionGranted) public {
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(_projectId));
+        Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        bool vote = _petitionGranted ? true : false;
+        bytes32 commit = keccak256(abi.encodePacked(vote, "someSalt"));
+        for(uint i; i < panel.confirmedMediators.length; ++i) {
+            address mediator = getWallet(panel.confirmedMediators[i]);
+            vm.startBroadcast(mediator);
+            mediationService.commitVote(dispute.disputeId, commit);
+            vm.stopBroadcast();
+        }
+        console.log("votes committed");
+    }
+
+    function mediatorsRevealVotes(uint256 _projectId, bool _petitionGranted) public {
+        Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(_projectId));
+        Panel memory panel = mediationService.getPanel(dispute.disputeId);
+        bool vote = _petitionGranted ? true : false;
+        for(uint i; i < panel.confirmedMediators.length; ++i) {
+            address mediator = getWallet(panel.confirmedMediators[i]);
+            vm.startBroadcast(mediator);
+            mediationService.revealVote(dispute.disputeId, vote, "someSalt");
+            vm.stopBroadcast();
+        }
+        console.log("votes revealed");
+        dispute = mediationService.getDispute(dispute.disputeId);
+        console.log("petition granted: %s", dispute.granted);
+    }   
+
+    function resolveMediation(uint256 _projectId, bool _petitionGranted) public {
+        console.log("--------------------");
+        console.log("resolving mediation for project id %s", _projectId);
+        console.log("--------------------");
+        payFeesAndSelectMediators(_projectId);
+        mediatorsAccept(_projectId);
+        mediatorsCommitVotes(_projectId, _petitionGranted);
+        mediatorsRevealVotes(_projectId, _petitionGranted);
+    }
+
+    function resolveAllMediation() public {
+        uint256 numProjects = marketplace.projectIds();
+        for(uint i = 1; i <= numProjects; ++i) {
+            Project memory project = marketplace.getProject(i);
+            if(project.status == Status.Disputed) {
+                Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(project.projectId));
+                if(dispute.phase == Phase.Disclosure) {
+                    bool outcome = i % 2 == 0 ? true : false;
+                    resolveMediation(project.projectId, outcome);
+                }
+            }
+        }
+    }
+
+    ////////////////
+    ///   UTIL   ///
+    ////////////////
+
+    function getWallet(address _user) public returns (address) {
+        address walletAddr;        
+        for(uint i; i < anvilAddresses.length; ++i) {
+            if(anvilAddresses[i] == _user) {
+                walletAddr = vm.rememberKey(anvilPKs[i]);
+            }
+        }
+        require(walletAddr != address(0), "address not found");
+        return walletAddr;
+    }
+
+    function randomBuyerAndProvider() public returns (address, address) {
+        // uint256 nonce = uint(blockhash(block.number - 1));
+        uint256 indexBuyer = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
+        ++nonce;
+        uint256 indexProvider = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
+        while(indexBuyer == indexProvider) {
+            ++nonce;
+            indexProvider = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
+        }
+        return(vm.rememberKey(anvilPKs[indexBuyer]), vm.rememberKey(anvilPKs[indexProvider]));
+    }
+
+    function logProjectDetails(uint256 _projectId) public view {
+        Project memory project = marketplace.getProject(_projectId);
+        console.log("id: %s", project.projectId);
+        console.log("status: %s", getStatusString(project.status));
+        if(project.status == Status.Disputed || project.status == Status.Appealed) {
+            uint256 disputeId = marketplace.getDisputeId(project.projectId);
+            console.log("dispute id: %s", disputeId);
+            Dispute memory dispute = mediationService.getDispute(disputeId);
+            console.log("dispute phase: ", getPhaseString(dispute.phase));
+            if(dispute.phase == Phase.Decision) {
+                console.log("petition granted: ", dispute.granted);
+            }
+        }
+        console.log("escrow: %s", project.escrow);
+        console.log("buyer: %s", project.buyer);
+        console.log("provider: %s", project.provider);
+    }
+
+    function getStatusString(Status _status) public pure returns (string memory) {
+        string memory status;
+        if(_status == Status.Created) status = "Created";
+        else if(_status == Status.Cancelled) status = "Cancelled";
+        else if(_status == Status.Active) status = "Active";
+        else if(_status == Status.Discontinued) status = "Discontinued";
+        else if(_status == Status.Completed) status = "Completed";
+        else if(_status == Status.Approved) status = "Approved";
+        else if(_status == Status.Challenged) status = "Challenged";
+        else if(_status == Status.Disputed) status = "Disputed";
+        else if(_status == Status.Appealed) status = "Appealed";
+        else if(_status == Status.Resolved_ChangeOrder) status = "Resolved_ChangeOrder";
+        else if(_status == Status.Resolved_Mediation) status = "Resolved_Mediation";
+        else if(_status == Status.Resolved_ReviewOverdue) status = "Resolved_ReviewOverdue";
+        else if(_status == Status.Resolved_MediationDismissed) status = "Resolved_MediationDismissed";
+        return status;
+    }
+
+    function getPhaseString(Phase _phase) public pure returns (string memory) {
+        string memory phase;
+        if(_phase == Phase.Disclosure) phase = "Disclosure";
+        if(_phase == Phase.PanelSelection) phase = "PanelSelection"; 
+        if(_phase == Phase.Voting) phase = "Voting"; 
+        if(_phase == Phase.Reveal) phase = "Reveal"; 
+        if(_phase == Phase.Decision) phase = "Decision";
+        if(_phase == Phase.DefaultDecision) phase = "DefaultDecision"; 
+        if(_phase == Phase.Dismissed) phase = "Dismissed"; 
+        if(_phase == Phase.SettledExternally) phase = "SettledExternally";
+        return phase;
     }
 
     function run() public {}

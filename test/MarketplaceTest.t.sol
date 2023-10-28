@@ -35,7 +35,7 @@ contract MarketplaceTest is Test, TestSetup {
     // event ProjectApproved(uint256 indexed projectId, address indexed buyer, address indexed provider);
     // event ProjectChallenged(uint256 indexed projectId, address indexed buyer, address indexed provider);
     // event ProjectDisputed(uint256 indexed projectId, address indexed buyer, address indexed provider, uint256 petitionId);
-    // event DelinquentPayment(uint256 indexed projectId, address indexed buyer, address indexed provider);
+    // event ReviewOverdue(uint256 indexed projectId, address indexed buyer, address indexed provider);
     // event ChangeOrderApproved(uint256 indexed projectId, address indexed buyer, address indexed provider);
     // event ChangeOrderRetracted(uint256 indexed projectId, address indexed retractedBy);
     // event ProjectAppealed(uint256 indexed projectId, uint256 indexed petitionId, address appealedBy);
@@ -458,7 +458,7 @@ contract MarketplaceTest is Test, TestSetup {
     //     );
     // }
 
-    // function test_delinquentPayment() public {
+    // function test_reviewOverdue() public {
     //     Marketplace.Project memory p = marketplace.getProject(testProjectId_MATIC);
     //     vm.prank(provider);
     //     marketplace.activateProject{value: p.providerStake}(p.projectId);
@@ -467,27 +467,27 @@ contract MarketplaceTest is Test, TestSetup {
     //     // review period passes but buyer does not sign
     //     vm.warp(block.timestamp + p.reviewPeriodLength + 1);
     //     vm.expectEmit(true, true, true, false);
-    //     emit DelinquentPayment(p.projectId, p.buyer, p.provider);
+    //     emit ReviewOverdue(p.projectId, p.buyer, p.provider);
     //     vm.prank(provider);
-    //     marketplace.delinquentPayment(p.projectId);
+    //     marketplace.reviewOverdue(p.projectId);
     //     p = marketplace.getProject(testProjectId_MATIC);
-    //     assertEq(uint(p.status), uint(Status.Resolved_DelinquentPayment));
+    //     assertEq(uint(p.status), uint(Status.Resolved_ReviewOverdue));
     // }
 
-    // function test_delinquentPayment_revert() public {
+    // function test_reviewOverdue_revert() public {
     //     Marketplace.Project memory p = marketplace.getProject(testProjectId_MATIC);
     //     vm.prank(provider);
     //     marketplace.activateProject{value: p.providerStake}(p.projectId);
     //     // wrong status
-    //     vm.expectRevert(Marketplace.Marketplace__PaymentIsNotDelinquent.selector);
+    //     vm.expectRevert(Marketplace.Marketplace__ReviewNotOverdue.selector);
     //     vm.prank(provider);
-    //     marketplace.delinquentPayment(p.projectId);
+    //     marketplace.reviewOverdue(p.projectId);
     //     // completed, but still within review period
     //     vm.prank(provider);
     //     marketplace.completeProject(p.projectId);
-    //     vm.expectRevert(Marketplace.Marketplace__PaymentIsNotDelinquent.selector);
+    //     vm.expectRevert(Marketplace.Marketplace__ReviewNotOverdue.selector);
     //     vm.prank(provider);
-    //     marketplace.delinquentPayment(p.projectId);
+    //     marketplace.reviewOverdue(p.projectId);
     // }
 
     // /////////////////////////////////

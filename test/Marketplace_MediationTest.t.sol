@@ -28,7 +28,7 @@ contract MarketplaceMediationTest is Test, TestSetup {
         project_dispute_denied = _disclosureToResolved(id_mediation_disclosure_MATIC, false);
     }
 
-    function test_appealDetermination() public {
+    function test_appealReveal() public {
         Project memory project = marketplace.getProject(project_dispute_granted);
         uint256 originalDisputeId = marketplace.getDisputeId(project.projectId);
         uint256 currentDisputeId = mediationService.disputeIds();
@@ -36,7 +36,7 @@ contract MarketplaceMediationTest is Test, TestSetup {
         vm.expectEmit(true, true, false, true);
         emit ProjectAppealed(project.projectId, currentDisputeId + 1, project.provider);
         vm.prank(project.provider);
-        uint256 newDisputeId = marketplace.appealDetermination(project.projectId);
+        uint256 newDisputeId = marketplace.appealReveal(project.projectId);
 
         // status changed
         project = marketplace.getProject(project.projectId);
@@ -46,27 +46,27 @@ contract MarketplaceMediationTest is Test, TestSetup {
         assertEq(marketplace.getDisputeId(project.projectId), newDisputeId);
     }
 
-    function test_appealDetermination_revert() public {
+    function test_appealReveal_revert() public {
         // project not disputed
         Project memory project = marketplace.getProject(id_challenged_ERC20);
         vm.expectRevert(Marketplace.Marketplace__ProjectIsNotDisputed.selector);
         vm.prank(project.buyer);
-        marketplace.appealDetermination(project.projectId);
+        marketplace.appealReveal(project.projectId);
         // mediationService has not ruled
         project = marketplace.getProject(id_mediation_committedVotes_MATIC);
         vm.expectRevert(Marketplace.Marketplace__MediationServiceHasNotRuled.selector);
         vm.prank(project.buyer);
-        marketplace.appealDetermination(project.projectId);
+        marketplace.appealReveal(project.projectId);
         // not buyer or provider
         project = marketplace.getProject(project_dispute_granted);
         vm.expectRevert(Marketplace.Marketplace__OnlyBuyerOrProvider.selector);
         vm.prank(admin1);
-        marketplace.appealDetermination(project.projectId);
+        marketplace.appealReveal(project.projectId);
         // appeal period over
         vm.warp(block.timestamp + marketplace.APPEAL_PERIOD());
         vm.expectRevert(Marketplace.Marketplace__AppealPeriodOver.selector);
         vm.prank(project.buyer);
-        marketplace.appealDetermination(project.projectId);
+        marketplace.appealReveal(project.projectId);
     }
 
     function test_waiveAppeal() public {

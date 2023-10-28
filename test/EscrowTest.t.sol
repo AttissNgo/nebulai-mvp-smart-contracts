@@ -149,12 +149,12 @@ contract EscrowTest is Test, TestSetup {
     }
 
     function test_withdraw_deliquentPayment() public {
-        uint256[2] memory delinquentProjects = [id_complete_ERC20, id_complete_MATIC];
-        for(uint i; i < delinquentProjects.length; ++i) {
-            Project memory project = marketplace.getProject(delinquentProjects[i]);
+        uint256[2] memory overdueProjects = [id_complete_ERC20, id_complete_MATIC];
+        for(uint i; i < overdueProjects.length; ++i) {
+            Project memory project = marketplace.getProject(overdueProjects[i]);
             vm.warp(block.timestamp + project.reviewPeriodLength + 1);
             vm.prank(project.provider);
-            marketplace.delinquentPayment(project.projectId);
+            marketplace.reviewOverdue(project.projectId);
             IEscrow escrow = IEscrow(project.escrow);
             (uint escrowBefore,, uint providerBefore, uint marketplaceBefore) = _snapshotBeforeBalances(project.projectId);
             
@@ -700,15 +700,15 @@ contract EscrowTest is Test, TestSetup {
 //         escrow.withdraw();
 //     }
 
-//     function test_withdraw_delinquent_payment() public {
+//     function test_withdraw_overdue_review() public {
 //         vm.pauseGasMetering();
 //         _completedProject(testProjectId_ERC20);
 //         Marketplace.Project memory project = marketplace.getProject(testProjectId_ERC20);
 //         IEscrow escrow = IEscrow(project.escrow);
-//             // review period passes, buyer does not approve, provider marks payment delinquent
+//             // review period passes, buyer does not approve, provider marks review overdue
 //         vm.warp(block.timestamp + project.reviewPeriodLength + 1);
 //         vm.prank(project.provider);
-//         marketplace.delinquentPayment(project.projectId);
+//         marketplace.reviewOverdue(project.projectId);
 //         _setBeforeBalances(project.paymentToken, project.buyer, project.provider, project.escrow);
 //         vm.resumeGasMetering();
 //         // provider can withdraw project fee + stake - commission
