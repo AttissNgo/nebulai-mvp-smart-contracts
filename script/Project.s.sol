@@ -115,8 +115,6 @@ contract CreateProject is Script, ProjectStorage {
      */
     function createProject() public returns (uint256)
     {
-        // address buyer = vm.rememberKey(anvilPKs[_buyerPKindex]);
-        // address provider = vm.rememberKey(anvilPKs[_providerPKindex]);
         (address buyer, address provider) = randomBuyerAndProvider();
         vm.startBroadcast(buyer);
         uint256 txFee = marketplace.calculateNebulaiTxFee(projectFee);
@@ -363,7 +361,6 @@ contract CreateProject is Script, ProjectStorage {
     }
 
     function randomBuyerAndProvider() public returns (address, address) {
-        // uint256 nonce = uint(blockhash(block.number - 1));
         uint256 indexBuyer = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
         ++nonce;
         uint256 indexProvider = uint256(keccak256(abi.encodePacked(nonce, block.timestamp))) % anvilPKs.length;
@@ -424,10 +421,10 @@ contract CreateProject is Script, ProjectStorage {
     }
 
     function run() public {
-        vm.startBroadcast(anvilPKs[0]);
-        console.log("testing deployment");
-        console.log(marketplaceAddr);
-        vm.stopBroadcast();
+        // vm.startBroadcast(anvilPKs[0]);
+        // console.log("testing deployment");
+        // console.log(marketplaceAddr);
+        // vm.stopBroadcast();
     }
 }
 
