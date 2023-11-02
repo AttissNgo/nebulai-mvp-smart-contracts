@@ -33,13 +33,6 @@ interface MarketplaceIface {
     function getProject(uint256) external view returns (DataStructuresLibrary.Project memory);
 }
 
-// interface MediationServiceIface {
-//     function getDispute(uint256) external returns (DataStructuresLibrary.Dispute memory);
-//     function calculateMediationFee(bool isAppeal) external view returns (uint256);
-//     function payMediationFee(uint256 _petitionId, string[] calldata _evidenceURIs) external payable;
-//     function getPanel(uint256 _disputeId) external view returns (DataStructuresLibrary.Panel memory);
-// }
-
 interface VRFIface {
     function fulfillRandomWords(uint256 _requestId, address _consumer) external;
 }
@@ -55,20 +48,14 @@ contract ProjectStorage is Script, DataStructuresLibrary {
     string changeOrderDetails = "ipfs://changeOrderURI";
     string[] evidence = ["ipfs://evidence1URI", "ipfs://evidence2URI"];
 
-    // uint256 pk_0 = vm.envUint("PK_ANVIL_0");
-    // uint256 pk_1 = vm.envUint("PK_ANVIL_1");
-    // address anvil_0 = vm.addr(pk_0);
-    // address anvil_1 = vm.addr(pk_1);
-
     string json = vm.readFile("./deploymentInfo.json");
-    address marketplaceAddr = vm.parseJsonAddress(json, "anvil.MarketplaceAddress");
-    address testTokenAddr = vm.parseJsonAddress(json, "anvil.TestToken");
-    address mediationServiceAddr = vm.parseJsonAddress(json, "anvil.MediationServiceAddress");
-    address vrfMockAddr = vm.parseJsonAddress(json, "anvil.VRFMockAddress");
+    address marketplaceAddr = vm.parseJsonAddress(json, ".anvil.MarketplaceAddress");
+    address testTokenAddr = vm.parseJsonAddress(json, ".anvil.TestToken");
+    address mediationServiceAddr = vm.parseJsonAddress(json, ".anvil.MediationServiceAddress");
+    address vrfMockAddr = vm.parseJsonAddress(json, ".anvil.VRFMockAddress");
 
     MarketplaceIface marketplace = MarketplaceIface(marketplaceAddr);
     IERC20 testToken = IERC20(testTokenAddr);
-    // MediationServiceIface mediationService = MediationServiceIface(mediationServiceAddr);
     IMediationService mediationService = IMediationService(mediationServiceAddr);
     VRFIface vrf = VRFIface(vrfMockAddr);
 
@@ -122,7 +109,7 @@ contract ProjectStorage is Script, DataStructuresLibrary {
 contract CreateProject is Script, ProjectStorage {
 
     uint nonce = 1;
-    
+ 
     /**
      * creates project with random buyer and provider from anvil addresses
      */
@@ -436,77 +423,13 @@ contract CreateProject is Script, ProjectStorage {
         return phase;
     }
 
-    function run() public {}
+    function run() public {
+        vm.startBroadcast(anvilPKs[0]);
+        console.log("testing deployment");
+        console.log(marketplaceAddr);
+        vm.stopBroadcast();
+    }
 }
-
-// contract CreateTestProjects is Script, ProjectStorage {
-
-
-//     function run() public {
-
-//         vm.startBroadcast(pk_0); 
-//         uint256 txFee = marketplace.calculateNebulaiTxFee(projectFee);
-//         testToken.approve(marketplaceAddr, projectFee + txFee);
-//         uint256 projectId = marketplace.createProject(
-//             anvil_1,
-//             testTokenAddr,
-//             projectFee,
-//             providerStake,
-//             block.timestamp + 7 days,
-//             block.timestamp + 2 days, // this is incorrect
-//             detailsURI
-//         );
-//         vm.stopBroadcast();
-//         vm.startBroadcast(pk_1); // activate and complete
-//         testToken.approve(marketplaceAddr, providerStake);
-//         marketplace.activateProject(projectId);
-//         marketplace.completeProject(projectId);
-//         vm.stopBroadcast();
-//         vm.startBroadcast(pk_0); // challenge
-//         marketplace.challengeProject(projectId, changeOrderProjectFee, changeOrderStakeForfeit, changeOrderDetails);
-//         vm.stopBroadcast();
-//     }
-// }
-
-// contract InitiateMediation is Script, ProjectStorage {
-
-//     // make sure block timestamp has been advanced in anvil!
-
-//     uint256 latestProjectId = marketplace.projectIds();
-
-//     function run() public {
-//         vm.startBroadcast(pk_0);
-//         marketplace.disputeProject(
-//             latestProjectId,
-//             changeOrderProjectFee, 
-//             changeOrderStakeForfeit
-//         );
-//         vm.stopBroadcast();
-//     }
-// }
-
-// contract PayMediationFees is Script, ProjectStorage {
-
-//     uint256 latestProjectId = marketplace.projectIds();
-
-//     function run() public {
-//         uint256 mediationFee = mediationService.calculateMediationFee(false);
-//         uint256 petitionId = marketplace.getDisputeId(latestProjectId);
-//         vm.startBroadcast(pk_0);
-//         mediationService.payMediationFee{value: mediationFee}(petitionId, evidence);
-//         vm.stopBroadcast();
-//         vm.startBroadcast(pk_1);
-//         mediationService.payMediationFee{value: mediationFee}(petitionId, evidence);
-//         // VmSafe.Log[] memory entries = vm.getRecordedLogs(); 
-//         // uint256 requestId = uint(bytes32(entries[1].));
-//         // // uint256 requestId = uint(bytes32(entries[2].data));
-//         vm.stopBroadcast();
-
-//         vm.startBroadcast(pk_0);
-//         vrf.fulfillRandomWords(latestProjectId, mediationServiceAddr);
-//         vm.stopBroadcast();
-//     }
-// }
 
 
 
