@@ -345,6 +345,16 @@ contract CreateProject is Script, ProjectStorage {
         }
     }
 
+    function panelSelectionForAll() public {
+        uint256 numDisputes = mediationService.disputeIds();
+        for(uint i = 1; i <= numDisputes; ++i) {
+            Dispute memory dispute = mediationService.getDispute(i);
+            if(dispute.phase == Phase.Disclosure) {
+                payFeesAndSelectMediators(dispute.projectId);
+            }
+        }
+    }
+
     ////////////////
     ///   UTIL   ///
     ////////////////

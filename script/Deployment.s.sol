@@ -173,9 +173,9 @@ contract DeploymentLocal is Script {
         vm.writeJson(escrowFactoryAddr, "./deploymentInfo.json", valueKey);
         vm.writeJson(marketplaceAddr, "./deploymentInfo.json", valueKey);
 
-        // register mediators
+        // register mediators - users[0] will NOT be registered
         uint256 mediatorMinStake = mediatorPool.minimumStake();
-        for(uint i; i < anvilPKs.length; ++i) {
+        for(uint i = 1; i < anvilPKs.length; ++i) {
             vm.startBroadcast(anvilPKs[i]);
             mediatorPool.registerAsMediator{value: mediatorMinStake}();
             vm.stopBroadcast();

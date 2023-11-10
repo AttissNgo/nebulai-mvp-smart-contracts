@@ -19,6 +19,7 @@ interface IMediationService {
     function getPanel(uint256 _disputeId) external view returns (DataStructuresLibrary.Panel memory);
     function mediatorsNeeded(uint256 disputeId) external view returns (uint256);
 
+    function disputeIds() external returns (uint256);
     function mediatorFlatFee() external returns (uint256);
     function acceptCase(uint256 _disputeId) external payable;
     function commitVote(uint256 _disputeId, bytes32 _commit) external;

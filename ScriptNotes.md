@@ -48,6 +48,11 @@
     ```
     ... this will resolve all disputes in which Phase == Disclosure (it will ignore disputes that you have updated manually), and if the project ID is even it will grant the petition and not grant if it is odd.
 
+In my case, I need disputes with mediators already drawn, so I can use this function:
+
+    forge script script/Project.s.sol:CreateProject --rpc-url $RPC --sig "panelSelectionForAll()" --broadcast
+    
+
 
 To see project details in the command line, run this script:
 
