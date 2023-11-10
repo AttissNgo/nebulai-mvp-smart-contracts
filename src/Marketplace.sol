@@ -48,12 +48,12 @@ contract Marketplace is DataStructuresLibrary {
     mapping(uint256 => uint256) private txFeesHeld;
 
     /**
-     * @dev token address (zero for native) to amount held by Marketplace (non-refundable)
+     * @dev token address (address zero for native currency) to amount held by Marketplace (non-refundable)
      */
     mapping(address => uint256) private txFeesPaid;
 
     /**
-     * @dev token address (zero for native) to amount received from completed Projects
+     * @dev token address (address zero for native currency) to amount received from completed Projects
      */
     mapping(address => uint256) private commissionFees; 
 
@@ -431,7 +431,7 @@ contract Marketplace is DataStructuresLibrary {
      * @notice can only called between rendering of original decision and end of APPEAL_PERIOD
      * @return disputeID identifier of Dispute in MediationService contract
      */
-    function appealReveal(uint256 _projectId) external returns (uint256) {
+    function appealDecision(uint256 _projectId) external returns (uint256) {
         Project storage p = projects[_projectId];
         if(msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
         if(p.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();

@@ -20,7 +20,7 @@ contract MediationServicePanelTest is Test, TestSetup {
     event AdditionalMediatorDrawingInitiated(uint256 indexed disputeId, uint256 requestId);
     event AdditionalMediatorsAssigned(uint256 indexed disputeId, address[] assignedMediators);
     event MediatorRemoved(uint256 indexed disputeId, address indexed mediator);
-    event RevealOverdue(uint256 indexed disputeId, bool deadlocked);
+    event OverdueReveal(uint256 indexed disputeId, bool deadlocked);
     event ArbiterAssigned(uint256 indexed disputeId, address indexed arbiter);
     event ArbiterVote(uint256 indexed disputeId, address indexed arbiter, bool vote);
 
@@ -540,7 +540,7 @@ contract MediationServicePanelTest is Test, TestSetup {
         mediationService.overdueCommit(dispute.disputeId);
     }
 
-    function test_revealOverdue_majority() public {
+    function test_overdueReveal_majority() public {
         vm.pauseGasMetering();
         bool[3] memory voteInputs = [false, true, true];
         bool[] memory votes = new bool[](voteInputs.length);
@@ -571,8 +571,8 @@ contract MediationServicePanelTest is Test, TestSetup {
         vm.expectEmit(true, false, false, true);
         emit DecisionReached(dispute.disputeId, true, 2);
         vm.expectEmit(true, false, false, true);
-        emit RevealOverdue(dispute.disputeId, false);
-        mediationService.revealOverdue(dispute.disputeId);
+        emit OverdueReveal(dispute.disputeId, false);
+        mediationService.overdueReveal(dispute.disputeId);
 
         // mediator removed
         panel = mediationService.getPanel(dispute.disputeId);
@@ -592,7 +592,7 @@ contract MediationServicePanelTest is Test, TestSetup {
         assertEq(dispute.granted, true);
     }
 
-    function test_revealOverdue_tie() public {
+    function test_overdueReveal_tie() public {
         vm.pauseGasMetering();
         bool[3] memory voteInputs = [false, false, true];
         bool[] memory votes = new bool[](voteInputs.length);
@@ -623,8 +623,8 @@ contract MediationServicePanelTest is Test, TestSetup {
         // vm.expectEmit(true, false, false, true);
         // emit DecisionReached(dispute.disputeId, true, 2);
         vm.expectEmit(true, false, false, true);
-        emit RevealOverdue(dispute.disputeId, true);
-        mediationService.revealOverdue(dispute.disputeId);
+        emit OverdueReveal(dispute.disputeId, true);
+        mediationService.overdueReveal(dispute.disputeId);
 
         // mediator removed
         panel = mediationService.getPanel(dispute.disputeId);
@@ -645,11 +645,11 @@ contract MediationServicePanelTest is Test, TestSetup {
         assertEq(mediationService.votesTied(dispute.disputeId), true);
     }
 
-    function test_revealOverdue_revert() public {
+    function test_overdueReveal_revert() public {
         // wrong phase
         Dispute memory dispute = mediationService.getDispute(marketplace.getDisputeId(id_mediation_confirmedPanel_MATIC));
         vm.expectRevert(MediationService.MediationService__OnlyDuringReveal.selector);
-        mediationService.revealOverdue(dispute.disputeId);
+        mediationService.overdueReveal(dispute.disputeId);
         // reveal period still active
         vm.pauseGasMetering();
         bool[3] memory voteInputs = [false, false, true];
@@ -662,7 +662,7 @@ contract MediationServicePanelTest is Test, TestSetup {
         dispute = mediationService.getDispute(dispute.disputeId);
         assertTrue(block.timestamp < dispute.revealStart + mediationService.REVEAL_PERIOD());
         vm.expectRevert(MediationService.MediationService__RevealPeriodStillActive.selector);
-        mediationService.revealOverdue(dispute.disputeId);
+        mediationService.overdueReveal(dispute.disputeId);
     }
 
     function test_assignArbiter() public {
@@ -684,7 +684,7 @@ contract MediationServicePanelTest is Test, TestSetup {
         mediationService.revealVote(dispute.disputeId, true, "someSalt");
         vm.resumeGasMetering();
         vm.warp(block.timestamp + mediationService.REVEAL_PERIOD() + 1);
-        mediationService.revealOverdue(dispute.disputeId);
+        mediationService.overdueReveal(dispute.disputeId);
         assertEq(mediationService.arbiter(dispute.disputeId), address(0));
 
         address arbiter = panel.drawnMediators[panel.drawnMediators.length -1]; // we know this mediator is eligible
@@ -719,7 +719,7 @@ contract MediationServicePanelTest is Test, TestSetup {
         mediationService.revealVote(dispute.disputeId, true, "someSalt");
         vm.resumeGasMetering();
         vm.warp(block.timestamp + mediationService.REVEAL_PERIOD() + 1);
-        mediationService.revealOverdue(dispute.disputeId);
+        mediationService.overdueReveal(dispute.disputeId);
 
         // not admin
         vm.expectRevert(MediationService.MediationService__OnlyAdmin.selector);
@@ -766,7 +766,7 @@ contract MediationServicePanelTest is Test, TestSetup {
         vm.prank(mediator2);
         mediationService.revealVote(dispute.disputeId, true, "someSalt");
         vm.warp(block.timestamp + mediationService.REVEAL_PERIOD() + 1);
-        mediationService.revealOverdue(dispute.disputeId);
+        mediationService.overdueReveal(dispute.disputeId);
         address arbiter = panel.drawnMediators[panel.drawnMediators.length -1]; // we know this mediator is eligible
         vm.prank(admin1);
         mediationService.assignArbiter(dispute.disputeId, arbiter);

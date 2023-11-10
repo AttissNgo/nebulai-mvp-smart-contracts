@@ -378,7 +378,7 @@ contract MediationServiceDisputeTest is Test, TestSetup {
         vm.expectEmit(true, true, false, true);
         emit AppealCreated(currentDisputeId + 1, marketplace.getDisputeId(project.projectId), project.projectId);
         vm.prank(project.provider);
-        uint256 newDisputeId = marketplace.appealReveal(project.projectId);
+        uint256 newDisputeId = marketplace.appealDecision(project.projectId);
 
         // new dispute created
         Dispute memory newDispute = mediationService.getDispute(newDisputeId);

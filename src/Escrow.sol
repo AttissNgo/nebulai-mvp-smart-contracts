@@ -20,7 +20,6 @@ contract Escrow is DataStructuresLibrary {
     bool public providerHasStaked = false;
     bool private buyerHasWithdrawn = false;
     bool private providerHasWithdrawn = false;
-    // uint256 public commissionFee;
 
     event EscrowReleased(address recipient, uint256 amountReleased, uint256 commissionFeePaid);
 
@@ -172,7 +171,6 @@ contract Escrow is DataStructuresLibrary {
     }
 
     /**
-     * 
      * @dev if _totalPaid is >= 100, returns 1% of _totalPaid, else returns 0 
      */
     function calculateCommissionFee(uint256 _totalPaid) private pure returns (uint256) {

@@ -189,7 +189,7 @@ contract DeploymentMumbai is Script {
     Governor public governor;
     Whitelist public whitelist;
     MediatorPool public mediatorPool;
-    uint256 public minimumMediatorStake = 1 ether;
+    uint256 public minimumMediatorStake = 0.01 ether; 
     MediationService public mediationService;
     EscrowFactory public escrowFactory;
     Marketplace public marketplace;
