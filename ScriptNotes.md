@@ -1,3 +1,19 @@
+### To set the environment to develop the Mediator UI:
+First, instantiate Anvil
+
+    anvil --accounts 20 --balance 1000000
+
+Then, set the EVM state by running these scripts:
+
+    RPC="http://127.0.0.1:8545"
+    forge script script/Deployment.s.sol:DeploymentLocal --fork-url $RPC --broadcast
+    forge script script/Project.s.sol:CreateProject --rpc-url $RPC --sig "createMultipleProjects()" --broadcast
+    cast rpc anvil_setBlockTimestampInterval 604800 --rpc-url $RPC
+    cast rpc anvil_mine 1 --rpc-url $RPC
+    cast rpc anvil_removeBlockTimestampInterval --rpc-url $RPC
+    forge script script/Project.s.sol:CreateProject --rpc-url $RPC --sig "createMultipleDisputes()" --broadcast
+    forge script script/Project.s.sol:CreateProject --rpc-url $RPC --sig "panelSelectionForAll()" --broadcast
+
 ## Create and manage Projects and Disputes locally
 
 1. Instantiate anvil

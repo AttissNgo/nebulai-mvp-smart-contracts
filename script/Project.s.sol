@@ -113,8 +113,7 @@ contract CreateProject is Script, ProjectStorage {
     /**
      * creates project with random buyer and provider from anvil addresses
      */
-    function createProject() public returns (uint256)
-    {
+    function createProject() public returns (uint256) {
         (address buyer, address provider) = randomBuyerAndProvider();
         vm.startBroadcast(buyer);
         uint256 txFee = marketplace.calculateNebulaiTxFee(projectFee);
