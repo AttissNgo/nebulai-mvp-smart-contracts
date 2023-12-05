@@ -21,7 +21,7 @@ contract Escrow is DataStructuresLibrary {
     bool private buyerHasWithdrawn = false;
     bool private providerHasWithdrawn = false;
 
-    event EscrowReleased(address recipient, uint256 amountReleased, uint256 commissionFeePaid);
+    // event EscrowReleased(address recipient, uint256 amountReleased, uint256 commissionFeePaid);
 
     error Escrow__OnlyMarketplace();
     error Escrow__InsufficientAmount();
@@ -101,7 +101,8 @@ contract Escrow is DataStructuresLibrary {
             }
             IMarketplace(MARKETPLACE).receiveCommission(PROJECT_ID, commissionFee);
         }
-        emit EscrowReleased(msg.sender, amount, commissionFee);
+        // emit EscrowReleased(msg.sender, amount, commissionFee);
+        IMarketplace(MARKETPLACE).escrowWithdrawnEvent(PROJECT_ID, msg.sender, amount, commissionFee);
     }
 
     function isReleasable() public view returns (bool) {

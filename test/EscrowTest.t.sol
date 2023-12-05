@@ -3,17 +3,21 @@ pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
 import "./TestSetup.t.sol";
-// import "./MarketplaceTest.t.sol";
 import "../src/Interfaces/IEscrow.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../src/Escrow.sol";
-// import "./Marketplace_ProjectTest.t.sol";
 import "forge-std/console.sol";
 
 
 contract EscrowTest is Test, TestSetup {
 
-    event EscrowReleased(address recipient, uint256 amountReleased, uint256 commissionFeePaid);
+    event EscrowWithdrawn(
+        uint256 indexed projectId, 
+        address indexed user, 
+        address indexed escrow,
+        uint256 amount, 
+        uint256 commissionFeePaid
+    );
 
     function setUp() public {
         _setUp();
@@ -102,8 +106,8 @@ contract EscrowTest is Test, TestSetup {
             assertEq(commission, project.projectFee/100);
             assertEq(amountDue, project.projectFee + project.providerStake - commission);
             vm.prank(project.provider);
-            vm.expectEmit(false, false, false, true);
-            emit EscrowReleased(project.provider, amountDue, commission);
+            vm.expectEmit(true, true, true, true);
+            emit EscrowWithdrawn(project.projectId, project.provider, address(escrow), amountDue, commission);
             escrow.withdraw();
             assertEq(_getBalance(project.provider, project.paymentToken), providerBefore + amountDue);
             assertEq(_getBalance(address(marketplace), project.paymentToken), marketplaceBefore + commission);
@@ -128,8 +132,8 @@ contract EscrowTest is Test, TestSetup {
             (uint256 amountDue, uint256 commission) = escrow.amountDue(project.provider);
             assertEq(commission, order.adjustedProjectFee/100);
             assertEq(amountDue, order.adjustedProjectFee + project.providerStake - order.providerStakeForfeit - commission);
-            vm.expectEmit(false, false, false, true);
-            emit EscrowReleased(project.provider, amountDue, commission);
+            vm.expectEmit(true, true, true, true);
+            emit EscrowWithdrawn(project.projectId, project.provider, address(escrow), amountDue, commission);
             vm.prank(project.provider);
             escrow.withdraw();
             assertEq(_getBalance(project.provider, project.paymentToken), providerBefore + amountDue);
@@ -139,8 +143,8 @@ contract EscrowTest is Test, TestSetup {
             // buyer withdraw
             (amountDue,) = escrow.amountDue(project.buyer);
             assertEq(amountDue, project.projectFee - order.adjustedProjectFee + order.providerStakeForfeit);
-            vm.expectEmit(false, false, false, true);
-            emit EscrowReleased(project.buyer, amountDue, 0);
+            vm.expectEmit(true, true, true, true);
+            emit EscrowWithdrawn(project.projectId, project.buyer, address(escrow), amountDue, 0);
             vm.prank(project.buyer);
             escrow.withdraw();
             assertEq(_getBalance(project.buyer, project.paymentToken), buyerBefore + amountDue);
@@ -197,8 +201,8 @@ contract EscrowTest is Test, TestSetup {
         // buyer withdraw
         (uint256 amountDue,) = escrow.amountDue(project.buyer);
         assertEq(amountDue, project.projectFee + project.providerStake);
-        vm.expectEmit(false, false, false, true);
-        emit EscrowReleased(project.buyer, amountDue, 0);
+        vm.expectEmit(true, true, true, true);
+        emit EscrowWithdrawn(project.projectId, project.buyer, address(escrow), amountDue, 0);
         vm.prank(project.buyer);
         escrow.withdraw();
         assertEq(_getBalance(project.buyer, project.paymentToken), buyerBefore + amountDue);

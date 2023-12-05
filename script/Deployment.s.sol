@@ -195,7 +195,7 @@ contract DeploymentMumbai is Script {
     Marketplace public marketplace;
 
     uint64 public subscriptionId = 2867;
-    address public vrfMumbai = vrfMumbai;
+    address public vrfMumbai = 0x7a1BaC17Ccc5b313516C5E16fb24f7659aA5ebed;
 
     address[] public admins = [
         0x537Df8463a09D0370DeE4dE077178300340b0030, // attiss - deployer

@@ -10,4 +10,5 @@ interface IMarketplace {
     function getProjectStatus(uint256 _projectId) external view returns (DataStructuresLibrary.Status);
     function getChangeOrders(uint256 _projectId) external view returns (DataStructuresLibrary.ChangeOrder[] memory);
     function getActiveChangeOrder(uint256 _projectId) external view returns (DataStructuresLibrary.ChangeOrder memory);
+    function escrowWithdrawnEvent(uint256 _projectId, address _user, uint256 _amount, uint256 _commissionPaid) external;
 }

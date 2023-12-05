@@ -100,12 +100,20 @@ contract Marketplace is DataStructuresLibrary {
     event CommissionFeeReceived(uint256 indexed projectId, uint256 commissionAmount, address paymentToken);
     event FeesWithdrawnERC20(address recipient, address token, uint256 amount);
     event FeesWithdrawnNative(address recipient, uint256 amount);
+    event EscrowWithdrawn(
+        uint256 indexed projectId, 
+        address indexed user, 
+        address indexed escrow,
+        uint256 amount, 
+        uint256 commissionFeePaid
+    );
 
     // transfers
     error Marketplace__TransferFailed();
     error Marketplace__InsufficientAmount();
     error Marketplace__InsufficientApproval();
     error Marketplace__NativeCurrencySent();
+    error Marketplace__EscrowWithdrawError();
     // permissions
     error Marketplace__OnlyUser();
     error Marketplace__OnlyGovernor();
@@ -383,9 +391,9 @@ contract Marketplace is DataStructuresLibrary {
         emit ReviewOverdue(_projectId, p.buyer, p.provider); 
     }
 
-    ///////////////////////
+    /////////////////////
     ///   MEDIATION   ///
-    ///////////////////////
+    /////////////////////
 
     /**
      * @notice initiates mediation by creating a Dispute in MediationService contract
@@ -623,6 +631,15 @@ contract Marketplace is DataStructuresLibrary {
         if(msg.sender != project.escrow) revert Marketplace__CommissionMustBePaidByEscrow();
         commissionFees[project.paymentToken] += _commission;
         emit CommissionFeeReceived(_projectId, _commission, project.paymentToken);
+    }
+
+    /**
+     * @dev called by Escrow after user withdraws
+     */
+    function escrowWithdrawnEvent(uint256 _projectId, address _user, uint256 _amount, uint256 _commissionPaid) external {
+        Project memory project = getProject(_projectId);
+        if(msg.sender != project.escrow) revert Marketplace__EscrowWithdrawError();
+        emit EscrowWithdrawn(project.projectId, _user, project.escrow, _amount, _commissionPaid);
     }
 
     //////////////////////
