@@ -175,9 +175,19 @@ contract DeploymentLocal is Script {
 
         // register mediators - users[0] will NOT be registered
         uint256 mediatorMinStake = mediatorPool.minimumStake();
+        // for(uint i = 1; i < anvilPKs.length; ++i) {
+        //     vm.startBroadcast(anvilPKs[i]);
+        //     mediatorPool.registerAsMediator{value: mediatorMinStake}();
+        //     vm.stopBroadcast();
+        // }
+
         for(uint i = 1; i < anvilPKs.length; ++i) {
+            vm.startBroadcast(anvilPKs[0]);
+            mediatorPool.registerMediator(users[i]);
+            vm.stopBroadcast();
+
             vm.startBroadcast(anvilPKs[i]);
-            mediatorPool.registerAsMediator{value: mediatorMinStake}();
+            mediatorPool.stake{value: mediatorMinStake}();
             vm.stopBroadcast();
         }
     }

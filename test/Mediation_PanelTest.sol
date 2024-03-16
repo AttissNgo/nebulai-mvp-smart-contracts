@@ -403,9 +403,12 @@ contract MediationServicePanelTest is Test, TestSetup {
         for(uint i; i < ringers.length; ++i) {
             vm.deal(ringers[i], 10000 ether);
             vm.prank(admin1);
-            whitelist.approveAddress(ringers[i]);
+            // whitelist.approveAddress(ringers[i]);
+            mediatorPool.registerMediator(ringers[i]);
+
             vm.prank(ringers[i]);
-            mediatorPool.registerAsMediator{value: stake}();
+            // mediatorPool.registerAsMediator{value: stake}();
+            mediatorPool.stake{value: stake}();
         }
         address[] memory assignedMediators = new address[](ringers.length);
         for(uint i; i < assignedMediators.length; ++i) {

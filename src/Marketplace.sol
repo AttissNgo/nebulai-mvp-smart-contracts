@@ -39,7 +39,7 @@ contract Marketplace is DataStructuresLibrary {
     /**
      * @notice transaction fee charged for creating projects in marketplace, represented as a percentage of project fee
      */
-    uint256 public nebulaiTxFee = 3;
+    uint256 public nebulaiTxFee = 3; 
     uint256 public constant minimumTxFee = 3 ether;
 
     /**
@@ -57,11 +57,11 @@ contract Marketplace is DataStructuresLibrary {
      */
     mapping(address => uint256) private commissionFees; 
 
-    Counters.Counter public projectIds;
+    Counters.Counter public projectIds; 
     mapping(uint256 => Project) private projects;
 
     Counters.Counter public changeOrderIds;
-    mapping(uint256 => ChangeOrder[]) private changeOrders; // only one active Change Order per Project ID is possible
+    mapping(uint256 => ChangeOrder[]) private changeOrders; // only one active Change Order per Project ID is possible 
 
     /**
      * @dev Project ID mapped to Dispute ID in MediationService smart contract
@@ -71,18 +71,18 @@ contract Marketplace is DataStructuresLibrary {
     /**
      * @notice time to approve a Change Order after it is created
      */
-    uint24 public constant CHANGE_ORDER_PERIOD = 7 days;
+    uint24 public constant CHANGE_ORDER_PERIOD = 7 days; 
 
     /**
      * @notice time to appeal a MediationService decision after the decision has been rendered
      */
-    uint24 public constant APPEAL_PERIOD = 7 days;
+    uint24 public constant APPEAL_PERIOD = 7 days; 
 
     event NebulaiTxFeeChanged(uint256 txFee);
     event ERC20Approved(address token);
     event ERC20Removed(address token);
-    event ProjectCreated(uint256 indexed projectId, address indexed buyer, address indexed provider);
-    event ProjectCancelled(uint256 indexed projectId, address indexed buyer, address indexed provider);
+    event ProjectCreated(uint256 indexed projectId, address indexed buyer, address indexed provider); 
+    event ProjectCancelled(uint256 indexed projectId, address indexed buyer, address indexed provider); 
     event ProjectActivated(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectDiscontinued(uint256 indexed projectId, address indexed buyer, address indexed provider);
     event ProjectCompleted(uint256 indexed projectId, address indexed buyer, address indexed provider);
@@ -125,6 +125,7 @@ contract Marketplace is DataStructuresLibrary {
     error Marketplace__InvalidProviderAddress();
     error Marketplace__InvalidDueDate();
     error Marketplace__UnapprovedToken();
+    error Marketplace__InvalidReviewPeriodLength();
     // project actions
     error Marketplace__ProjectCannotBeCancelled();
     error Marketplace__ProjectCannotBeActivated();
@@ -155,12 +156,12 @@ contract Marketplace is DataStructuresLibrary {
     error Marketplace__MediationServiceCaseAlreadyInitiated();
     
     modifier onlyUser() {
-        if(!WHITELIST.isApproved(msg.sender)) revert Marketplace__OnlyUser();
+        if (!WHITELIST.isApproved(msg.sender)) revert Marketplace__OnlyUser();
         _;
     }
 
     modifier onlyGovernor() {
-        if(msg.sender != GOVERNOR) revert Marketplace__OnlyGovernor();
+        if (msg.sender != GOVERNOR) revert Marketplace__OnlyGovernor();
         _;
     }
 
@@ -176,18 +177,18 @@ contract Marketplace is DataStructuresLibrary {
         WHITELIST = IWhitelist(_whitelist);
         MEDIATION_SERVICE = IMediationService(_mediationService);
         ESCROW_FACTORY = IEscrowFactory(_escrowFactory);
-        for(uint i = 0; i < _approvedTokens.length; ++i) {
+        for (uint i = 0; i < _approvedTokens.length; ++i) {
             _approveToken(_approvedTokens[i]);
         }
     }
 
-    fallback() external payable {}
-    receive() external payable {}
+    fallback() external payable {} 
+    receive() external payable {} 
 
     /**
-     * @notice creates a Project in Marketplace and deploys an Escrow contract
+     * @notice creates a Project in Marketplace and deploys an associated Escrow contract
      * @dev project ID cannot be zero
-     * @return projectId of newly created Project
+     * @return ID of newly created Project
      */
     function createProject(
         address _provider,
@@ -203,8 +204,9 @@ contract Marketplace is DataStructuresLibrary {
         onlyUser 
         returns (uint256) 
     {
-        if(_provider == msg.sender || _provider == address(0)) revert Marketplace__InvalidProviderAddress();
-        if(_dueDate < block.timestamp || _dueDate > block.timestamp + 365 days) revert Marketplace__InvalidDueDate();
+        if (_provider == msg.sender || _provider == address(0)) revert Marketplace__InvalidProviderAddress();
+        if (_dueDate < block.timestamp || _dueDate > block.timestamp + 365 days) revert Marketplace__InvalidDueDate();
+        if (_reviewPeriodLength > 30 days) revert Marketplace__InvalidReviewPeriodLength();
         uint256 txFee = calculateNebulaiTxFee(_projectFee);
         projectIds.increment(); 
         Project memory p;
@@ -225,81 +227,88 @@ contract Marketplace is DataStructuresLibrary {
         p.paymentToken = _paymentToken;
         p.providerStake = _providerStake;
         p.dueDate = _dueDate;
-        p.reviewPeriodLength = _reviewPeriodLength;
-        p.nebulaiTxFee = txFee;
+        p.reviewPeriodLength = _reviewPeriodLength; 
+        p.nebulaiTxFee = txFee; 
         p.detailsURI = _detailsURI;
-        if(_paymentToken != address(0)) {
-            if(!isApprovedToken[_paymentToken]) revert Marketplace__UnapprovedToken();
-            if(IERC20(_paymentToken).allowance(msg.sender, address(this)) < txFee + _projectFee) revert Marketplace__InsufficientApproval();
-            if(msg.value > 0) revert Marketplace__NativeCurrencySent();
-            bool success = IERC20(_paymentToken).transferFrom(msg.sender, address(this), txFee);
-            if(!success) revert Marketplace__TransferFailed();
-            success = IERC20(_paymentToken).transferFrom(msg.sender, p.escrow, _projectFee);
-            if(!success) revert Marketplace__TransferFailed();
-        } else {
-            if(msg.value < txFee + _projectFee) revert Marketplace__InsufficientAmount();
-            (bool success, ) = p.escrow.call{value: _projectFee}("");
-            if(!success) revert Marketplace__TransferFailed();
-        }
-        p.projectFee = _projectFee;
+        p.projectFee = _projectFee; 
         txFeesHeld[p.projectId] = txFee;
         projects[p.projectId] = p;
+
+        if (_paymentToken != address(0)) {
+            if (!isApprovedToken[_paymentToken]) revert Marketplace__UnapprovedToken();
+            if (IERC20(_paymentToken).allowance(msg.sender, address(this)) < txFee + _projectFee) {
+                revert Marketplace__InsufficientApproval();
+            }
+            if (msg.value > 0) revert Marketplace__NativeCurrencySent();
+            bool success = IERC20(_paymentToken).transferFrom(msg.sender, address(this), txFee);
+            if (!success) revert Marketplace__TransferFailed();
+            success = IERC20(_paymentToken).transferFrom(msg.sender, p.escrow, _projectFee);
+            if (!success) revert Marketplace__TransferFailed();
+        } else {
+            if (msg.value < txFee + _projectFee) revert Marketplace__InsufficientAmount();
+            (bool success, ) = p.escrow.call{value: _projectFee}("");
+            if (!success) revert Marketplace__TransferFailed();
+        }
+        
         emit ProjectCreated(p.projectId, p.buyer, p.provider);
         return p.projectId;
     }
 
     /**
-     * @notice Project is closed and Escrow releases projectFee to Buyer
-     * @notice txFee is refunded to Buyer
-     * @notice can only be called if Provider has not activate Project
+     * @notice Closes the Project and performs the following actions:
+     *   - Releases projectFee to Buyer from Escrow
+     *   - Refunds txFee to Buyer
+     * 
+     * @notice **Prerequisite:** Project must not be activated by the Provider
      */
     function cancelProject(uint256 _projectId) external {
         Project storage p = projects[_projectId];
-        if(msg.sender != p.buyer) revert Marketplace__OnlyBuyer();
-        if(p.status != Status.Created) revert Marketplace__ProjectCannotBeCancelled();
+        if (msg.sender != p.buyer) revert Marketplace__OnlyBuyer();
+        if (p.status != Status.Created) revert Marketplace__ProjectCannotBeCancelled();
         uint256 txFeeRefund = getTxFeesHeld(_projectId);
         p.status = Status.Cancelled;
-        txFeesHeld[_projectId] -= txFeeRefund;
-        if(p.paymentToken != address(0)) {
+        txFeesHeld[_projectId] -= txFeeRefund; 
+        if (p.paymentToken != address(0)) {
             bool success = IERC20(p.paymentToken).transfer(msg.sender, txFeeRefund);
-            if(!success) revert Marketplace__TransferFailed();
+            if (!success) revert Marketplace__TransferFailed();
         } else {
             (bool success,) = msg.sender.call{value: txFeeRefund}("");
-            if(!success) revert Marketplace__TransferFailed();
+            if (!success) revert Marketplace__TransferFailed();
         }
         emit ProjectCancelled(_projectId, p.buyer, p.provider);
     }
 
     /**
      * @notice Provider stakes in Escrow and begins working on Project
+     * @notice Tx fees paid on Project creation become non-refundable
      */
     function activateProject(uint256 _projectId) external payable onlyUser {
         Project storage p = projects[_projectId];
-        if(msg.sender != p.provider) revert Marketplace__OnlyProvider();
-        if(p.status != Status.Created) revert Marketplace__ProjectCannotBeActivated();
-        if(p.providerStake > 0) {
-            if(p.paymentToken != address(0)) {
-                if(IERC20(p.paymentToken).allowance(msg.sender, address(this)) < p.providerStake) {
-                    revert Marketplace__InsufficientApproval();
-                }
-                if(msg.value > 0) revert Marketplace__NativeCurrencySent();
-                bool success = IERC20(p.paymentToken).transferFrom(msg.sender, p.escrow, p.providerStake);
-                if(!success) revert Marketplace__TransferFailed();
-            } else {
-                if(msg.value < p.providerStake) revert Marketplace__InsufficientAmount();
-                (bool success,) = p.escrow.call{value: p.providerStake}("");
-                if(!success) revert Marketplace__TransferFailed();
-            }
-        }
-        require(IEscrow(p.escrow).verifyProviderStake());
+        if (msg.sender != p.provider) revert Marketplace__OnlyProvider();
+        if (p.status != Status.Created) revert Marketplace__ProjectCannotBeActivated();
         txFeesPaid[p.paymentToken] += txFeesHeld[_projectId];
         txFeesHeld[_projectId] = 0;
         p.status = Status.Active;
+        if (p.providerStake > 0) {
+            if (p.paymentToken != address(0)) {
+                if (IERC20(p.paymentToken).allowance(msg.sender, address(this)) < p.providerStake) {
+                    revert Marketplace__InsufficientApproval();
+                }
+                if (msg.value > 0) revert Marketplace__NativeCurrencySent();
+                bool success = IERC20(p.paymentToken).transferFrom(msg.sender, p.escrow, p.providerStake);
+                if (!success) revert Marketplace__TransferFailed();
+            } else {
+                if (msg.value < p.providerStake) revert Marketplace__InsufficientAmount();
+                (bool success,) = p.escrow.call{value: p.providerStake}("");
+                if (!success) revert Marketplace__TransferFailed();
+            }
+        }
+        require(IEscrow(p.escrow).verifyProviderStake());
         emit ProjectActivated(_projectId, p.buyer, p.provider);
     }
 
     /**
-     * @notice either Buyer or Provider discontinues Project and proposes a Change Order
+     * @notice Allows either Buyer or Provider to discontinue Project and propose a Change Order
      * @param _changeOrderDetailsURI details of Change Order on distributed file system
      */
     function discontinueProject(
@@ -311,8 +320,8 @@ contract Marketplace is DataStructuresLibrary {
         external 
     {
         Project storage p = projects[_projectId];
-        if(msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
-        if(p.status != Status.Active) revert Marketplace__ProjectMustBeActive();
+        if (msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
+        if (p.status != Status.Active) revert Marketplace__ProjectMustBeActive();
         p.status = Status.Discontinued;
         p.changeOrderPeriodInitiated = block.timestamp;
         _proposeChangeOrder(
@@ -325,24 +334,24 @@ contract Marketplace is DataStructuresLibrary {
     }
 
     /**
-     * @notice Provider claims Project is complete, reviewPeriod is initiated
+     * @notice Provider claims Project is complete and reviewPeriod is initiated
      */
     function completeProject(uint256 _projectId) external {
         Project storage p = projects[_projectId];
-        if(msg.sender != p.provider) revert Marketplace__OnlyProvider();
-        if(p.status != Status.Active) revert Marketplace__ProjectMustBeActive();
+        if (msg.sender != p.provider) revert Marketplace__OnlyProvider();
+        if (p.status != Status.Active) revert Marketplace__ProjectMustBeActive();
         p.status = Status.Completed;
         p.dateCompleted = block.timestamp;
         emit ProjectCompleted(p.projectId, p.buyer, p.provider);
     }
 
     /**
-     * @notice Buyer approves deliverables, Project is closed and Escrow releases funds according to Project details
+     * @notice Buyer approves, Project is closed and Escrow releases funds according to Project details
      */
     function approveProject(uint256 _projectId) external {
         Project storage p = projects[_projectId];
-        if(msg.sender != p.buyer) revert Marketplace__OnlyBuyer();
-        if(p.status != Status.Completed) revert Marketplace__ProjectNotCompleted();
+        if (msg.sender != p.buyer) revert Marketplace__OnlyBuyer();
+        if (p.status != Status.Completed) revert Marketplace__ProjectNotCompleted();
         p.status = Status.Approved;
         emit ProjectApproved(p.projectId, p.buyer, p.provider);
     }
@@ -360,10 +369,10 @@ contract Marketplace is DataStructuresLibrary {
         external 
     {
         Project storage p = projects[_projectId];
-        if(msg.sender != p.buyer) revert Marketplace__OnlyBuyer();
-        if(p.status != Status.Active && p.status != Status.Completed) revert Marketplace__ProjectCannotBeChallenged();
-        if(p.status == Status.Active && block.timestamp < p.dueDate) revert Marketplace__ProjectIsNotOverdue();
-        if(p.status == Status.Completed && block.timestamp > p.dateCompleted + p.reviewPeriodLength) {
+        if (msg.sender != p.buyer) revert Marketplace__OnlyBuyer();
+        if (p.status != Status.Active && p.status != Status.Completed) revert Marketplace__ProjectCannotBeChallenged();
+        if (p.status == Status.Active && block.timestamp < p.dueDate) revert Marketplace__ProjectIsNotOverdue();
+        if (p.status == Status.Completed && block.timestamp > p.dateCompleted + p.reviewPeriodLength) {
             revert Marketplace__ProjectReviewPeriodEnded();
         } 
         p.status = Status.Challenged;
@@ -378,13 +387,13 @@ contract Marketplace is DataStructuresLibrary {
     }
 
     /**
-     * @notice Project is closed and Escrow releases funds according to Project details
+     * @notice closes Project and Escrow releases funds according to Project details
      * @notice can only be called after reviewPeriod has elapsed and Buyer has not approved or challenged
      */
     function reviewOverdue(uint256 _projectId) external {
         Project storage p = projects[_projectId];
-        if(msg.sender != p.provider) revert Marketplace__OnlyProvider();
-        if(p.status != Status.Completed || block.timestamp < p.dateCompleted + p.reviewPeriodLength) {
+        if (msg.sender != p.provider) revert Marketplace__OnlyProvider();
+        if (p.status != Status.Completed || block.timestamp < p.dateCompleted + p.reviewPeriodLength) {
             revert Marketplace__ReviewNotOverdue();
         }
         p.status = Status.Resolved_ReviewOverdue;
@@ -398,8 +407,8 @@ contract Marketplace is DataStructuresLibrary {
     /**
      * @notice initiates mediation by creating a Dispute in MediationService contract
      * @notice can only be called after a Change Order has failed to be approved within CHANGE_ORDER_PERIOD
-     * @dev deletes existing (non-approved) Change Order
-     * @return disputeID identifier of Dispute in MediationService contract
+     * @dev deactivates existing (non-approved) Change Order
+     * @return ID of Dispute in MediationService contract
      */
     function disputeProject(
         uint256 _projectId,
@@ -410,18 +419,17 @@ contract Marketplace is DataStructuresLibrary {
         returns (uint256)
     {
         Project storage p = projects[_projectId];
-        if(msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
-        if(p.status != Status.Challenged && p.status != Status.Discontinued) revert Marketplace__ProjectCannotBeDisputed();
-        if(block.timestamp < p.changeOrderPeriodInitiated + CHANGE_ORDER_PERIOD) {
+        if (msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
+        if (p.status != Status.Challenged && p.status != Status.Discontinued) revert Marketplace__ProjectCannotBeDisputed();
+        if (block.timestamp < p.changeOrderPeriodInitiated + CHANGE_ORDER_PERIOD) {
             revert Marketplace__ChangeOrderPeriodStillActive();
         }
         p.status = Status.Disputed;
-        // we know change order exists, so no need to check
         ChangeOrder storage order = changeOrders[_projectId][changeOrders[_projectId].length - 1];
         order.active = false;
 
-        if(_adjustedProjectFee > p.projectFee) revert Marketplace__AdjustedFeeExceedsProjectFee();
-        if(_providerStakeForfeit > p.providerStake) revert Marketplace__ForfeitExceedsProviderStake();
+        if (_adjustedProjectFee > p.projectFee) revert Marketplace__AdjustedFeeExceedsProjectFee();
+        if (_providerStakeForfeit > p.providerStake) revert Marketplace__ForfeitExceedsProviderStake();
         uint256 disputeId = MEDIATION_SERVICE.createDispute(
             p.projectId,
             _adjustedProjectFee,
@@ -437,15 +445,15 @@ contract Marketplace is DataStructuresLibrary {
     /**
      * @notice creates a new Dispute in MediationService contract with same details of original mediation case
      * @notice can only called between rendering of original decision and end of APPEAL_PERIOD
-     * @return disputeID identifier of Dispute in MediationService contract
+     * @return ID of Dispute in MediationService contract
      */
     function appealDecision(uint256 _projectId) external returns (uint256) {
         Project storage p = projects[_projectId];
-        if(msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
-        if(p.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
+        if (msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
+        if (p.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
         Dispute memory dispute = MEDIATION_SERVICE.getDispute(mediationCases[_projectId]);
-        if(dispute.phase != Phase.Decision) revert Marketplace__MediationServiceHasNotRuled();
-        if(block.timestamp >= dispute.decisionRenderedDate + APPEAL_PERIOD) revert Marketplace__AppealPeriodOver();
+        if (dispute.phase != Phase.Decision) revert Marketplace__MediationServiceHasNotRuled();
+        if (block.timestamp >= dispute.decisionRenderedDate + APPEAL_PERIOD) revert Marketplace__AppealPeriodOver();
         p.status = Status.Appealed;
         uint256 disputeId = MEDIATION_SERVICE.appeal(_projectId);
         mediationCases[_projectId] = disputeId;
@@ -454,15 +462,15 @@ contract Marketplace is DataStructuresLibrary {
     }
 
     /**
-     * @notice Project is closed and Escrow releases funds according to Dispute in MediationService contract
+     * @notice closes Project and Escrow releases funds according to Dispute in MediationService contract
      * @notice only non-prevailing party may waive the appeal
      */
     function waiveAppeal(uint256 _projectId) external {
         Project storage project = projects[_projectId];
-        if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
+        if (project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
         Dispute memory dispute = MEDIATION_SERVICE.getDispute(mediationCases[_projectId]);
-        if(dispute.phase != Phase.Decision) revert Marketplace__MediationServiceHasNotRuled();
-        if(dispute.granted) {
+        if (dispute.phase != Phase.Decision) revert Marketplace__MediationServiceHasNotRuled();
+        if (dispute.granted) {
             if(msg.sender != dispute.respondent) revert Marketplace__OnlyNonPrevailingParty();
         } else {
             if(msg.sender != dispute.claimant) revert Marketplace__OnlyNonPrevailingParty();
@@ -472,18 +480,18 @@ contract Marketplace is DataStructuresLibrary {
     }
 
     /**
-     * @notice Project is closed and Escrow releases funds according to Dispute in MediationService contract
+     * @notice Closes project and Escrow releases funds according to Dispute in MediationService contract
      * @notice if Dispute is not appeal, user must wait until after APPEAL_PERIOD elapses
      */
     function resolveByMediation(uint256 _projectId) public {
         Project storage project = projects[_projectId];
-        if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
-        if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
+        if (msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
+        if (project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
         Dispute memory dispute = MEDIATION_SERVICE.getDispute(mediationCases[_projectId]);
-        if(dispute.phase != Phase.Decision && dispute.phase != Phase.DefaultDecision) {
+        if (dispute.phase != Phase.Decision && dispute.phase != Phase.DefaultDecision) {
             revert Marketplace__MediationServiceHasNotRuled();
         }
-        if(!dispute.isAppeal) {
+        if (!dispute.isAppeal) {
             if(block.timestamp < dispute.decisionRenderedDate + APPEAL_PERIOD) revert Marketplace__AppealPeriodNotOver();
         }
         project.status = Status.Resolved_Mediation;
@@ -491,15 +499,15 @@ contract Marketplace is DataStructuresLibrary {
     }
 
     /**
-     * @notice Project is closed and Escrow releases funds according to Project details
+     * @notice closes Project and Escrow releases funds according to Project details
      * @notice Dispute can be dismissed in MediationService contract if neither party pays mediation fee
      */
     function resolveDismissedCase(uint256 _projectId) public {
         Project storage project = projects[_projectId];
-        if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
-        if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
+        if (msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
+        if (project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
         Dispute memory dispute = MEDIATION_SERVICE.getDispute(mediationCases[_projectId]);
-        if(dispute.phase != Phase.Dismissed) revert Marketplace__MediationServiceHasNotDismissedCase();
+        if (dispute.phase != Phase.Dismissed) revert Marketplace__MediationServiceHasNotDismissedCase();
         project.status = Status.Resolved_MediationDismissed;
         emit ResolvedByDismissedCase(_projectId, dispute.disputeId);
     }
@@ -518,10 +526,10 @@ contract Marketplace is DataStructuresLibrary {
         external 
     {
         Project memory project = projects[_projectId];
-        if(msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
-        if(project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
+        if (msg.sender != project.buyer && msg.sender != project.provider) revert Marketplace__OnlyBuyerOrProvider();
+        if (project.status != Status.Disputed) revert Marketplace__ProjectIsNotDisputed();
         Dispute memory dispute = MEDIATION_SERVICE.getDispute(getDisputeId(project.projectId));
-        if(dispute.phase != Phase.Disclosure) revert Marketplace__MediationServiceCaseAlreadyInitiated();
+        if (dispute.phase != Phase.Disclosure) revert Marketplace__MediationServiceCaseAlreadyInitiated();
         _proposeChangeOrder(
             _projectId,
             _adjustedProjectFee,
@@ -536,9 +544,8 @@ contract Marketplace is DataStructuresLibrary {
     ////////////////////////
 
     /**
-     * @notice creates a new Change Order
-     * @dev sets approval as true for user who proposes Change Order
-     * @dev sets 'active' field on most recent Change Order to false, ensuring only one active Change Order per Proejct
+     * @notice creates a new Change Order and sets approval as true for user who proposes it
+     * @dev sets 'active' field on most recent Change Order to false, ensuring only one active Change Order per Project
      */
     function _proposeChangeOrder(
         uint256 _projectId,
@@ -549,8 +556,8 @@ contract Marketplace is DataStructuresLibrary {
         private 
     {
         Project memory p = getProject(_projectId);
-        if(_adjustedProjectFee > p.projectFee) revert Marketplace__AdjustedFeeExceedsProjectFee();
-        if(_providerStakeForfeit > p.providerStake) revert Marketplace__ForfeitExceedsProviderStake();
+        if (_adjustedProjectFee > p.projectFee) revert Marketplace__AdjustedFeeExceedsProjectFee();
+        if (_providerStakeForfeit > p.providerStake) revert Marketplace__ForfeitExceedsProviderStake();
         changeOrderIds.increment();
         ChangeOrder memory newOrder = ChangeOrder({
             changeOrderId: changeOrderIds.current(),
@@ -565,34 +572,34 @@ contract Marketplace is DataStructuresLibrary {
             detailsURI: _changeOrderDetailsURI
         }); 
         ChangeOrder[] storage orders = changeOrders[_projectId];
-        if(orders.length > 0) {
+        if (orders.length > 0) {
             orders[orders.length - 1].active = false;
-        } // find cases where we actually need this operation...
+        } 
         orders.push(newOrder);
         changeOrders[_projectId] = orders;
         emit ChangeOrderProposed(_projectId);
     }
 
     /**
-     * @notice Project is closed and Escrow releases funds according to Change Order
+     * @notice closes Project and Escrow releases funds according to Change Order
      */
     function approveChangeOrder(uint256 _projectId) external {
-        if(!activeChangeOrder(_projectId)) revert Marketplace__NoActiveChangeOrder();
+        if (!activeChangeOrder(_projectId)) revert Marketplace__NoActiveChangeOrder();
         Project storage p = projects[_projectId];
-        if(msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
-        if(
+        if (msg.sender != p.buyer && msg.sender != p.provider) revert Marketplace__OnlyBuyerOrProvider();
+        if (
             p.status != Status.Discontinued &&
             p.status != Status.Challenged && 
             p.status != Status.Disputed
-        ) revert Marketplace__ChangeOrderNotValid(); // is this condition even possible???
+        ) revert Marketplace__ChangeOrderNotValid(); 
         ChangeOrder storage c = changeOrders[_projectId][changeOrders[_projectId].length -1];
-        if(
+        if (
             msg.sender == p.buyer && c.buyerApproval ||
             msg.sender == p.provider && c.providerApproval
         ) revert Marketplace__AlreadyApprovedChangeOrder();
-        if(msg.sender == p.buyer) c.buyerApproval = true;
-        if(msg.sender == p.provider) c.providerApproval = true;
-        if(p.status == Status.Disputed) {
+        if (msg.sender == p.buyer) c.buyerApproval = true;
+        if (msg.sender == p.provider) c.providerApproval = true;
+        if (p.status == Status.Disputed) {
             _validSettlement(p.projectId);
         }
         p.status = Status.Resolved_ChangeOrder;
@@ -604,7 +611,7 @@ contract Marketplace is DataStructuresLibrary {
      */
     function _validSettlement(uint256 _projectId) private {
         Dispute memory dispute = MEDIATION_SERVICE.getDispute(getDisputeId(_projectId));
-        if(dispute.phase != Phase.Disclosure) revert Marketplace__ChangeOrderNotValid();
+        if (dispute.phase != Phase.Disclosure) revert Marketplace__ChangeOrderNotValid();
         MEDIATION_SERVICE.settledExternally(dispute.disputeId);
     }
 
@@ -614,7 +621,7 @@ contract Marketplace is DataStructuresLibrary {
 
     function calculateNebulaiTxFee(uint256 _projectFee) public view returns (uint256) {
         uint256 txFee = (_projectFee * nebulaiTxFee) / 100;
-        if(txFee < minimumTxFee) txFee = minimumTxFee;
+        if (txFee < minimumTxFee) txFee = minimumTxFee;
         return txFee;
     }
 
@@ -624,21 +631,21 @@ contract Marketplace is DataStructuresLibrary {
     }
 
     /**
-     * @dev called by Escrow after tranferring commission fee to Marketplace when Provider withdraws
+     * @notice called by Escrow after tranferring commission fee to Marketplace when Provider withdraws
      */
     function receiveCommission(uint256 _projectId, uint256 _commission) external {
         Project memory project = getProject(_projectId);
-        if(msg.sender != project.escrow) revert Marketplace__CommissionMustBePaidByEscrow();
+        if (msg.sender != project.escrow) revert Marketplace__CommissionMustBePaidByEscrow();
         commissionFees[project.paymentToken] += _commission;
         emit CommissionFeeReceived(_projectId, _commission, project.paymentToken);
     }
 
     /**
-     * @dev called by Escrow after user withdraws
+     * @notice called by Escrow after user withdraws 
      */
     function escrowWithdrawnEvent(uint256 _projectId, address _user, uint256 _amount, uint256 _commissionPaid) external {
         Project memory project = getProject(_projectId);
-        if(msg.sender != project.escrow) revert Marketplace__EscrowWithdrawError();
+        if (msg.sender != project.escrow) revert Marketplace__EscrowWithdrawError();
         emit EscrowWithdrawn(project.projectId, _user, project.escrow, _amount, _commissionPaid);
     }
 
@@ -657,7 +664,7 @@ contract Marketplace is DataStructuresLibrary {
         emit ERC20Approved(_erc20);
     }
 
-    function removeToken(address _erc20) external onlyGovernor {
+    function removeToken(address _erc20) external onlyGovernor { 
         isApprovedToken[_erc20] = false;
         emit ERC20Removed(_erc20);
     }
@@ -666,24 +673,23 @@ contract Marketplace is DataStructuresLibrary {
      * @dev transfers all releasable fees paid in native currency and ERC20 tokens 
      */
     function withdrawFees(address _recipient) external onlyGovernor {
-        for(uint i; i < erc20Tokens.length; ++i) {
-            if(!isApprovedToken[erc20Tokens[i]]) revert Marketplace__UnapprovedToken();
+        for (uint i; i < erc20Tokens.length; ++i) {
             uint256 erc20Fees = txFeesPaid[erc20Tokens[i]] + commissionFees[erc20Tokens[i]];
             txFeesPaid[erc20Tokens[i]] = 0;
             commissionFees[erc20Tokens[i]] = 0;
-            if(erc20Fees > 0) {
-                bool erc20success = IERC20(erc20Tokens[i]).transfer(_recipient, erc20Fees);
-                if(!erc20success) revert Marketplace__TransferFailed();
+            if (erc20Fees > 0) {
+                bool erc20TransferSuccess = IERC20(erc20Tokens[i]).transfer(_recipient, erc20Fees);
+                if (!erc20TransferSuccess) revert Marketplace__TransferFailed();
                 emit FeesWithdrawnERC20(_recipient, erc20Tokens[i], erc20Fees);
             }
         }
-        // get all matic
+
         uint256 nativeFees = txFeesPaid[address(0)] + commissionFees[address(0)];
         txFeesPaid[address(0)] = 0;
         commissionFees[address(0)] = 0;
-        if(nativeFees > 0) {
+        if (nativeFees > 0) {
             (bool success, ) = _recipient.call{value: nativeFees}("");
-            if(!success) revert Marketplace__TransferFailed();
+            if (!success) revert Marketplace__TransferFailed();
         }
         emit FeesWithdrawnNative(_recipient, nativeFees);
     }
@@ -722,13 +728,13 @@ contract Marketplace is DataStructuresLibrary {
     }
 
     function getActiveChangeOrder(uint256 _projectId) public view returns (ChangeOrder memory) {
-        if(!activeChangeOrder(_projectId)) revert Marketplace__NoActiveChangeOrder();
+        if (!activeChangeOrder(_projectId)) revert Marketplace__NoActiveChangeOrder();
         return changeOrders[_projectId][changeOrders[_projectId].length - 1];
     }
 
     function activeChangeOrder(uint256 _projectId) public view returns (bool) {
         ChangeOrder[] memory orders = getChangeOrders(_projectId);
-        if(orders.length > 0 && orders[orders.length - 1].active) {
+        if (orders.length > 0 && orders[orders.length - 1].active) {
             return true;
         }
         return false;

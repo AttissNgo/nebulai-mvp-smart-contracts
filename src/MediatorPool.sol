@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import "./Interfaces/IWhitelist.sol";
+import "./Interfaces/IGovernor.sol";
 
 contract MediatorPool {
 
@@ -10,9 +11,9 @@ contract MediatorPool {
 
     /**
      * @notice determines if a mediator can be drawn for mediation 
-     * Active - the account can be drawn for cases
-     * Paused - the account cannot be drawn for cases (mediator can re-activate)
-     * Suspended - the account cannot be drawn for cases (only governor can re-activate)
+     *  - Active - the account can be drawn for cases
+     *  - Paused - the account cannot be drawn for cases (mediator can re-activate)
+     *  - Suspended - the account cannot be drawn for cases (only governor can re-activate)
      */
     enum MediatorStatus {
         Active, 
@@ -21,8 +22,8 @@ contract MediatorPool {
     }
 
     /**
-     * @dev stake is used in the weighted mediator drawing
-     * @dev if stake falls below the minimum stake, mediator will not be eligible for drawing
+     * @notice stake is used in the weighted mediator drawing
+     * @notice if stake falls below the minimum stake, mediator will not be eligible for drawing
      */
     mapping(address => uint256) private mediatorPoolStake;
     uint256 public minimumStake;
@@ -31,7 +32,7 @@ contract MediatorPool {
     mapping(address => MediatorStatus) private mediatorStatus;
 
     /**
-     * @dev used to pay additional mediators if there is a problem with a case
+     * @notice used to pay additional mediators if there is a problem with a case
      */
     uint256 private mediationReserve;
 
@@ -81,23 +82,36 @@ contract MediatorPool {
         minimumStake = _minimumStake;
     }
 
+    // /**
+    //  * @notice mediator can be drawn for mediation cases
+    //  */
+    // function registerAsMediator() external payable onlyWhitelisted { 
+    //     if (isMediator[msg.sender]) revert MediatorPool__AlreadyRegistered();
+    //     if (msg.value < minimumStake) revert MediatorPool__MinimumStakeNotMet();
+    //     mediatorPoolStake[msg.sender] += msg.value;
+    //     mediators.push(msg.sender);
+    //     isMediator[msg.sender] = true;
+    //     emit MediatorRegistered(msg.sender);
+    // }
+
+
     /**
-     * @notice mediator can be drawn for mediation cases
+     * @dev use for MVP - admins add mediator addresses
+     * @param _mediator mediator address to add
      */
-    function registerAsMediator() external payable onlyWhitelisted {
-        if(isMediator[msg.sender]) revert MediatorPool__AlreadyRegistered();
-        if(msg.value < minimumStake) revert MediatorPool__MinimumStakeNotMet();
-        mediatorPoolStake[msg.sender] += msg.value;
-        mediators.push(msg.sender);
-        isMediator[msg.sender] = true;
-        emit MediatorRegistered(msg.sender);
+    function registerMediator(address _mediator) external {
+        require(IGovernor(GOVERNOR).isAdmin(msg.sender), "only admin"); 
+        if (isMediator[_mediator]) revert MediatorPool__AlreadyRegistered();
+        mediators.push(_mediator);
+        isMediator[_mediator] = true;
+        emit MediatorRegistered(_mediator);
     }
 
     /**
      * @notice mediator will no longer be drawn for mediation until reactivated
      */
     function pauseMediator() external onlyRegistered {
-        if(mediatorStatus[msg.sender] != MediatorStatus.Active) revert MediatorPool__MediatorNotActive();
+        if (mediatorStatus[msg.sender] != MediatorStatus.Active) revert MediatorPool__MediatorNotActive();
         mediatorStatus[msg.sender] = MediatorStatus.Paused;
         emit MediatorPaused(msg.sender);
     } 
@@ -106,8 +120,8 @@ contract MediatorPool {
      * @notice mediator will be eligible for drawing again
      */
     function reactivateMediator() external onlyRegistered {
-        if(mediatorStatus[msg.sender] == MediatorStatus.Active) revert MediatorPool__MediatorAlreadyActive();
-        if(mediatorStatus[msg.sender] == MediatorStatus.Suspended) revert MediatorPool__MediatorSuspended();
+        if (mediatorStatus[msg.sender] == MediatorStatus.Active) revert MediatorPool__MediatorAlreadyActive();
+        if (mediatorStatus[msg.sender] == MediatorStatus.Suspended) revert MediatorPool__MediatorSuspended();
         mediatorStatus[msg.sender] = MediatorStatus.Active;
         emit MediatorReactivated(msg.sender);
     }
@@ -125,11 +139,11 @@ contract MediatorPool {
      * @notice suspended mediators cannot withdraw stake
      */
     function withdrawStake(uint256 _withdrawAmount) external onlyRegistered {
-        if(mediatorStatus[msg.sender] == MediatorStatus.Suspended) revert MediatorPool__MediatorSuspended();
-        if(getMediatorStake(msg.sender) < _withdrawAmount) revert MediatorPool__InsufficientStake();
+        if (mediatorStatus[msg.sender] == MediatorStatus.Suspended) revert MediatorPool__MediatorSuspended();
+        if (getMediatorStake(msg.sender) < _withdrawAmount) revert MediatorPool__InsufficientStake();
         mediatorPoolStake[msg.sender] -= _withdrawAmount;
         (bool success, ) = msg.sender.call{value: _withdrawAmount}("");
-        if(!success) revert MediatorPool__TransferFailed();
+        if (!success) revert MediatorPool__TransferFailed();
         emit StakeWithdrawn(msg.sender, _withdrawAmount, mediatorPoolStake[msg.sender]);
     }
 
@@ -156,8 +170,8 @@ contract MediatorPool {
      * @notice makes mediator ineligible for drawing and freezes their stake until reinstatement
      */
     function suspendMediator(address _mediator) external onlyGovernor {
-        if(!isMediator[_mediator]) revert MediatorPool__NotRegistered();
-        if(mediatorStatus[_mediator] == MediatorStatus.Suspended) revert MediatorPool__MediatorAlreadySuspended();
+        if (!isMediator[_mediator]) revert MediatorPool__NotRegistered();
+        if (mediatorStatus[_mediator] == MediatorStatus.Suspended) revert MediatorPool__MediatorAlreadySuspended();
         mediatorStatus[_mediator] = MediatorStatus.Suspended;
         emit MediatorSuspended(_mediator);
     }
@@ -166,8 +180,8 @@ contract MediatorPool {
      * @notice makes mediator eligible for drawing and allows them to withdraw their stake
      */
     function reinstateMediator(address _mediator) external onlyGovernor {
-        if(!isMediator[_mediator]) revert MediatorPool__NotRegistered();
-        if(mediatorStatus[_mediator] != MediatorStatus.Suspended) revert MediatorPool__MediatorNotSuspended();
+        if (!isMediator[_mediator]) revert MediatorPool__NotRegistered();
+        if (mediatorStatus[_mediator] != MediatorStatus.Suspended) revert MediatorPool__MediatorNotSuspended();
         mediatorStatus[_mediator] = MediatorStatus.Active;
         emit MediatorReinstated(_mediator);
     }
@@ -179,10 +193,10 @@ contract MediatorPool {
      */
     function withdrawMediationReserve(address _recipient, uint256 _amount) external onlyGovernor {
         require(_amount > 0);
-        if(_amount > mediationReserve) revert MediatorPool__InsufficientReserve();
+        if (_amount > mediationReserve) revert MediatorPool__InsufficientReserve();
         mediationReserve -= _amount;
         (bool success, ) = _recipient.call{value: _amount}("");
-        if(!success) revert MediatorPool__TransferFailed();
+        if (!success) revert MediatorPool__TransferFailed();
         emit MediationReserveWithdrawn(_recipient, _amount);
     }
 
@@ -191,9 +205,9 @@ contract MediatorPool {
     ///////////////////
 
     function isEligible(address _mediator) public view returns (bool) {
-        if(!isMediator[_mediator]) return false;
-        if(mediatorStatus[_mediator] != MediatorStatus.Active) return false;
-        if(mediatorPoolStake[_mediator] < minimumStake) return false;
+        if (!isMediator[_mediator]) return false;
+        if (mediatorStatus[_mediator] != MediatorStatus.Active) return false;
+        if (mediatorPoolStake[_mediator] < minimumStake) return false;
         return true;
     }
 

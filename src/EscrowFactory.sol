@@ -14,7 +14,7 @@ contract EscrowFactory {
         address _paymentToken,
         uint256 _projectFee,
         uint256 _providerStake,
-        address _court,
+        address _mediationService,
         string memory _detailsURI
     ) 
         external 
@@ -33,13 +33,14 @@ contract EscrowFactory {
                     _paymentToken,
                     _projectFee,
                     _providerStake,
-                    _court
+                    _mediationService
                 )
             ),
             0
         ));
-        address escrow = payable(newEscrowContract);
-        return escrow;
+        // address escrow = payable(newEscrowContract);
+        // return escrow;
+        return payable(newEscrowContract);
     }
 
 }

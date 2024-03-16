@@ -17,7 +17,12 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     address public immutable MARKETPLACE;
     IMediatorPool public mediatorPool;
 
+    /**
+     * @notice the amount that will be paid to mediators who vote in the majority
+     * @notice mediators must stake an amount equal to mediatorFlatFee to accept a case
+     */
     uint256 public mediatorFlatFee = 20 ether; 
+
     /**
      * @notice the mediation fees held for a Dispute ID
      */
@@ -33,11 +38,6 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     uint32 public callbackGasLimit = 800000;
     uint32 public numWords = 2; 
     mapping(uint256 => uint256) public vrfRequestToDispute;
-
-    // struct Panel {
-    //     address[] drawnMediators;
-    //     address[] confirmedMediators;
-    // }
 
     Counters.Counter public disputeIds;
     mapping(uint256 => Dispute) private disputes; // disputeId => Dispute
@@ -94,7 +94,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     error MediationService__OnlyPrevailingParty();
     error MediationService__MediationFeeAlreadyReclaimed();
     error MediationService__DisputeDoesNotExist();
-    error MediationService__RevealCannotBeAppealed();
+    error MediationService__DisputeCannotBeAppealed();
     error MediationService__FeesNotOverdue();
     error MediationService__ProjectIsNotDisputed();
     error MediationService__OnlyDuringDisclosure();
@@ -149,45 +149,47 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     }
 
     /**
-     * @dev callback from Chainlink VRF - uses random words to select mediators
+     * @notice callback from Chainlink VRF - uses verifiable random numbers to select mediators
      */
     function fulfillRandomWords(uint256 requestId, uint256[] memory randomWords) internal override {   
         Dispute storage dispute = disputes[vrfRequestToDispute[requestId]];
         bool isRedraw;   
-        if(dispute.selectionStart != 0) isRedraw = true;
+        if (dispute.selectionStart != 0) isRedraw = true;
         Panel storage panel = panels[dispute.disputeId];
         uint256 numNeeded = mediatorsNeeded(dispute.disputeId) * 3; 
-        if(isRedraw) numNeeded = mediatorsNeeded(dispute.disputeId) * 2;
+        if (isRedraw) numNeeded = mediatorsNeeded(dispute.disputeId) * 2;
         address[] memory mediatorsDrawn = new address[](numNeeded);
         uint256 nonce = 0;
         uint256 numSelected = 0;
         uint256 poolSize = mediatorPool.mediatorPoolSize();
+
         while (numSelected < numNeeded) {
             address mediatorA = mediatorPool.getMediator(uint256(keccak256(abi.encodePacked(randomWords[0], nonce))) % poolSize);
             address mediatorB = mediatorPool.getMediator(uint256(keccak256(abi.encodePacked(randomWords[1], nonce))) % poolSize);
             address drawnMediator = _weightedDrawing(mediatorA, mediatorB, randomWords[0]);
-            bool isInvalid = false;
-            if(!mediatorPool.isEligible(drawnMediator)) isInvalid = true;
-            if(drawnMediator == dispute.claimant || drawnMediator == dispute.respondent) isInvalid = true;
-            for(uint i; i < mediatorsDrawn.length; ++i) {
-                if(mediatorsDrawn[i] == drawnMediator) isInvalid = true; 
+            bool isInvalid = false; 
+            if (!mediatorPool.isEligible(drawnMediator)) isInvalid = true;
+            if (drawnMediator == dispute.claimant || drawnMediator == dispute.respondent) isInvalid = true;
+            for (uint i; i < mediatorsDrawn.length; ++i) {
+                if (mediatorsDrawn[i] == drawnMediator) isInvalid = true; 
             }
-            if(isRedraw) { 
-                for(uint i; i < panel.drawnMediators.length; ++i) {
+            if (isRedraw) { 
+                for (uint i; i < panel.drawnMediators.length; ++i) {
                     if(panel.drawnMediators[i] == drawnMediator) isInvalid = true;
                 }
             }
-            if(!isInvalid) {
+            if (!isInvalid) {
                 mediatorsDrawn[numSelected] = drawnMediator;
                 ++numSelected;
             }
-            ++nonce;
+            ++nonce; 
         }
+
         if(!isRedraw) {
             dispute.selectionStart = block.timestamp;
             panel.drawnMediators = mediatorsDrawn;
         } else {
-            for(uint i; i < mediatorsDrawn.length; ++i) {
+            for (uint i; i < mediatorsDrawn.length; ++i) {
                 panel.drawnMediators.push(mediatorsDrawn[i]);
             }
         }
@@ -209,21 +211,21 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
         uint256 stakeA = mediatorPool.getMediatorStake(_mediatorA);
         uint256 stakeB = mediatorPool.getMediatorStake(_mediatorB);
         address drawnMediator = _mediatorA;
-        if(stakeA > stakeB) {
-            if(_randomWord % 100 >= (stakeA * 100)/(stakeA + stakeB)) drawnMediator = _mediatorB;
+        if (stakeA > stakeB) {
+            if (_randomWord % 100 >= (stakeA * 100) / (stakeA + stakeB)) drawnMediator = _mediatorB;
         } else if(stakeB > stakeA) {
-            if(_randomWord % 100 < (stakeB * 100)/(stakeA + stakeB)) drawnMediator = _mediatorB;
+            if (_randomWord % 100 < (stakeB * 100) / (stakeA + stakeB)) drawnMediator = _mediatorB;
         }
         return drawnMediator;
     }
 
     function mediatorsNeeded(uint256 disputeId) public view returns (uint256) {
-        if(!disputes[disputeId].isAppeal) return 3;
+        if (!disputes[disputeId].isAppeal) return 3;
         else return 5;
     } 
 
     function calculateMediationFee(bool isAppeal) public view returns (uint256) {
-        if(!isAppeal) return 3 * mediatorFlatFee;
+        if (!isAppeal) return 3 * mediatorFlatFee;
         else return 5 * mediatorFlatFee;
     }
 
@@ -248,7 +250,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
         onlyMarketplace
         returns (uint256)
     {
-        if(IMarketplace(msg.sender).getDisputeId(_projectId) != 0) revert MediationService__ProjectHasOpenDispute();
+        if (IMarketplace(msg.sender).getDisputeId(_projectId) != 0) revert MediationService__ProjectHasOpenDispute();
         disputeIds.increment();
         uint256 disputeId = disputeIds.current();
         Dispute memory dispute;
@@ -273,9 +275,9 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      */
     function appeal(uint256 _projectId) external onlyMarketplace returns (uint256) {
         uint256 originalDisputeId = IMarketplace(msg.sender).getDisputeId(_projectId); 
-        if(originalDisputeId == 0) revert MediationService__DisputeDoesNotExist();
+        if (originalDisputeId == 0) revert MediationService__DisputeDoesNotExist();
         Dispute memory originalDispute = getDispute(originalDisputeId);
-        if(originalDispute.isAppeal) revert MediationService__RevealCannotBeAppealed();
+        if (originalDispute.isAppeal) revert MediationService__DisputeCannotBeAppealed();
         disputeIds.increment(); 
         uint256 disputeId = disputeIds.current();
         Dispute memory dispute;
@@ -295,23 +297,24 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
 
     /**
      * @notice pay mediation fee and submit evidence
-     * @dev when both disputants have paid, random words will be requested and panel will be drawn
+     * @notice when both disputants have paid, random words will be requested and mediator panel will be drawn
      */
     function payMediationFee(uint256 _disputeId, string[] calldata _evidenceURIs) external payable {
         Dispute storage dispute = disputes[_disputeId];
-        if(msg.sender != dispute.claimant && msg.sender != dispute.respondent) revert MediationService__OnlyDisputant();
-        if(
+        if (msg.sender != dispute.claimant && msg.sender != dispute.respondent) revert MediationService__OnlyDisputant();
+        if (
             (msg.sender == dispute.claimant && dispute.feePaidClaimant) || 
             (msg.sender == dispute.respondent && dispute.feePaidRespondent)
         ) revert MediationService__MediationFeeAlreadyPaid();
-        if(msg.value < dispute.mediationFee) revert MediationService__InsufficientAmount();
+        if (msg.value < dispute.mediationFee) revert MediationService__InsufficientAmount();
         (msg.sender == dispute.claimant) ? dispute.feePaidClaimant = true : dispute.feePaidRespondent = true;
         feesHeld[_disputeId] += msg.value;
-        for(uint i = 0; i < _evidenceURIs.length; ++i) {
+        for (uint i = 0; i < _evidenceURIs.length; ++i) {
             dispute.evidence.push(_evidenceURIs[i]);
         }
         emit MediationFeePaid(_disputeId, msg.sender);
-        if(dispute.feePaidClaimant && dispute.feePaidRespondent) {
+
+        if (dispute.feePaidClaimant && dispute.feePaidRespondent) {
             uint256 requestId = _selectPanel(_disputeId);
             dispute.phase = Phase.PanelSelection;
             emit PanelSelectionInitiated(_disputeId, requestId);
@@ -320,59 +323,59 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
 
     /**
      * @notice allows disputants who have paid mediation fee to submit additional evidence
-     * @dev evidence can only be submitted during Disclosure and Panel Selection
+     * @notice evidence can only be submitted during Disclosure and Panel Selection
      */
     function submitAdditionalEvidence(uint256 _disputeId, string[] calldata _evidenceURIs) external {
         Dispute storage dispute = disputes[_disputeId];
-        if(msg.sender != dispute.claimant && msg.sender != dispute.respondent) revert MediationService__OnlyDisputant();
-        if(dispute.phase != Phase.Disclosure && dispute.phase != Phase.PanelSelection) {
+        if (msg.sender != dispute.claimant && msg.sender != dispute.respondent) revert MediationService__OnlyDisputant();
+        if (dispute.phase != Phase.Disclosure && dispute.phase != Phase.PanelSelection) {
             revert MediationService__EvidenceCanNoLongerBeSubmitted();
         }
-        if(
+        if (
             (msg.sender == dispute.claimant && !dispute.feePaidClaimant) ||
             (msg.sender == dispute.respondent && !dispute.feePaidRespondent)
         ) revert MediationService__MediationFeeNotPaid();
-        for(uint i = 0; i < _evidenceURIs.length; ++i) {
-            dispute.evidence.push(_evidenceURIs[i]);
+        for (uint i = 0; i < _evidenceURIs.length; ++i) {
+            dispute.evidence.push(_evidenceURIs[i]); 
         }
     }
 
     /**
-     * @notice prevailing party may reclaim mediation fee
+     * @notice allows revailing party to reclaim mediation fee after mediation is complete
      */
     function reclaimMediationFee(uint256 _disputeId) external {
         Dispute memory dispute = getDispute(_disputeId);
-        if(msg.sender != dispute.claimant && msg.sender != dispute.respondent) revert MediationService__OnlyDisputant();
-        if(dispute.phase == Phase.Decision) {
-            if(dispute.granted && msg.sender != dispute.claimant) revert MediationService__OnlyPrevailingParty();
-            else if(!dispute.granted && msg.sender != dispute.respondent) revert MediationService__OnlyPrevailingParty();
+        if (msg.sender != dispute.claimant && msg.sender != dispute.respondent) revert MediationService__OnlyDisputant();
+        if (dispute.phase == Phase.Decision) {
+            if (dispute.granted && msg.sender != dispute.claimant) revert MediationService__OnlyPrevailingParty();
+            else if (!dispute.granted && msg.sender != dispute.respondent) revert MediationService__OnlyPrevailingParty();
         } else if (dispute.phase == Phase.SettledExternally) {
-            if(!dispute.feePaidClaimant && msg.sender == dispute.claimant) revert MediationService__MediationFeeNotPaid();
-            else if(!dispute.feePaidRespondent && msg.sender == dispute.respondent) revert MediationService__MediationFeeNotPaid();
+            if (!dispute.feePaidClaimant && msg.sender == dispute.claimant) revert MediationService__MediationFeeNotPaid();
+            else if (!dispute.feePaidRespondent && msg.sender == dispute.respondent) revert MediationService__MediationFeeNotPaid();
         } else revert MediationService__MediationFeeCannotBeReclaimed();
-        if(feesHeld[_disputeId] != dispute.mediationFee) revert MediationService__MediationFeeAlreadyReclaimed();
+        if (feesHeld[_disputeId] != dispute.mediationFee) revert MediationService__MediationFeeAlreadyReclaimed();
         uint256 reclaimAmount = feesHeld[_disputeId];
         feesHeld[_disputeId] -= reclaimAmount;
         (bool success, ) = msg.sender.call{value: reclaimAmount}("");
-        if(!success) revert MediationService__TransferFailed();
+        if (!success) revert MediationService__TransferFailed();
         emit MediationFeeReclaimed(_disputeId, msg.sender, reclaimAmount);
     }
 
     /**
-     * @notice closes a Dispute that receives no payment of mediation fees within DISCOVER_PERIOD
+     * @notice closes a Dispute when mediation fees have not been paid within DISCOVER_PERIOD
      * @notice a dismissed case will return to original project fee amount in Marketplace
      */
     function dismissUnpaidCase(uint256 _disputeId) public {
         Dispute storage dispute = disputes[_disputeId];
-        if(dispute.disputeId == 0) revert MediationService__DisputeDoesNotExist();
-        if(block.timestamp < dispute.disclosureStart + DISCLOSURE_PERIOD) revert MediationService__FeesNotOverdue();
-        if(dispute.feePaidClaimant || dispute.feePaidRespondent) revert MediationService__MediationFeeAlreadyPaid();
+        if (dispute.disputeId == 0) revert MediationService__DisputeDoesNotExist();
+        if (block.timestamp < dispute.disclosureStart + DISCLOSURE_PERIOD) revert MediationService__FeesNotOverdue();
+        if (dispute.feePaidClaimant || dispute.feePaidRespondent) revert MediationService__MediationFeeAlreadyPaid();
         dispute.phase = Phase.Dismissed;
         emit CaseDismissed(_disputeId);
     } 
 
     /**
-     * @dev called automatically by Marketplace when a change order is approved on a disputed Project
+     * @dev called by Marketplace when a change order (settlement) is approved on a disputed Project
      */
     function settledExternally(uint256 _disputeId) external onlyMarketplace {
         Dispute storage dispute = disputes[_disputeId];
@@ -381,31 +384,31 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     }
 
     /**
-     * @notice rules in favor of paying disputant when one disputant has not paid within DISCLOSURE_PERIOD
+     * @notice rules in favor disputant who paid mediation fee when one disputant has not paid within DISCLOSURE_PERIOD
      * @dev if both disputants have paid, phase will have been advanced to PanelSelection and function will revert
      */
     function requestDefaultDecision(uint256 _disputeId) external {
         Dispute storage dispute = disputes[_disputeId];
-        if(msg.sender != dispute.claimant && msg.sender != dispute.respondent) revert MediationService__OnlyDisputant();
-        if(dispute.phase != Phase.Disclosure) revert MediationService__OnlyDuringDisclosure();
-        if(msg.sender == dispute.claimant) {
-            if(!dispute.feePaidClaimant) revert MediationService__MediationFeeNotPaid();
+        if (msg.sender != dispute.claimant && msg.sender != dispute.respondent) revert MediationService__OnlyDisputant();
+        if (dispute.phase != Phase.Disclosure) revert MediationService__OnlyDuringDisclosure();
+        if (msg.sender == dispute.claimant) {
+            if (!dispute.feePaidClaimant) revert MediationService__MediationFeeNotPaid();
         } else {
-            if(!dispute.feePaidRespondent) revert MediationService__MediationFeeNotPaid();
+            if (!dispute.feePaidRespondent) revert MediationService__MediationFeeNotPaid();
         }
-        if(block.timestamp < dispute.disclosureStart + DISCLOSURE_PERIOD) revert MediationService__FeesNotOverdue();
+        if (block.timestamp < dispute.disclosureStart + DISCLOSURE_PERIOD) revert MediationService__FeesNotOverdue();
         (msg.sender == dispute.claimant) ? dispute.granted = true : dispute.granted = false;
         dispute.phase = Phase.DefaultDecision;
         uint256 reclaimAmount = feesHeld[_disputeId];
         feesHeld[_disputeId] -= reclaimAmount;
         (bool success, ) = msg.sender.call{value: reclaimAmount}("");
-        if(!success) revert MediationService__TransferFailed();
+        if (!success) revert MediationService__TransferFailed();
         emit DefaultDecisionEntered(_disputeId, msg.sender, dispute.granted);
     }
 
-    ////////////////
+    /////////////////
     ///   PANEL   ///
-    ////////////////
+    /////////////////
 
     /**
      * @dev creates a request for random words from Chainlink VRF - called internally when panel selection is needed
@@ -444,7 +447,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     }
 
     /**
-     * @dev called internally when a mediator revelas vote or when overdueReveal() is called
+     * @dev called internally when a mediator reveals vote or when overdueReveal() is called
      * @return votesFor number of votes in favor of dispute
      * @return votesAgainst number of votes against dispute
      */
@@ -452,8 +455,8 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
         Panel memory panel = getPanel(_disputeId);
         uint256 votesFor;
         uint256 votesAgainst;
-        for(uint i; i < panel.confirmedMediators.length; ++i) {
-            if(hasRevealedVote(panel.confirmedMediators[i], _disputeId)) {
+        for (uint i; i < panel.confirmedMediators.length; ++i) {
+            if (hasRevealedVote(panel.confirmedMediators[i], _disputeId)) {
                 (votes[panel.confirmedMediators[i]][_disputeId]) ? ++votesFor : ++votesAgainst;
             }
         }
@@ -463,15 +466,9 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     /**
      * @notice mediators who voted in majority may claim mediator fee, mediators in minority will not receive payment
      * @dev called internally when there are enough votes to render a decision
-     * @dev in the case of remaining mediation fees, the remaining currency will be transferred to the Panel Reserve
+     * @dev in the case of remaining mediation fees, the remainder will be transferred to the Panel Reserve
      */
-    function _renderDecision(
-        uint256 _disputeId, 
-        uint256 _votesFor, 
-        uint256 _votesAgainst
-    ) 
-        private 
-    {
+    function _renderDecision(uint256 _disputeId, uint256 _votesFor, uint256 _votesAgainst) private {
         Dispute storage dispute = disputes[_disputeId];
         dispute.phase = Phase.Decision;
         dispute.granted = (_votesFor > _votesAgainst);
@@ -479,9 +476,9 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
         uint256 mediatorFee = dispute.mediationFee / mediatorsNeeded(_disputeId);
         uint256 remainingFees = dispute.mediationFee;
         Panel memory panel = getPanel(_disputeId);
-        for(uint i; i < panel.confirmedMediators.length; ++i) {
-            if(hasRevealedVote(panel.confirmedMediators[i], _disputeId)) {
-                if(dispute.granted && votes[panel.confirmedMediators[i]][_disputeId] == true) {
+        for (uint i; i < panel.confirmedMediators.length; ++i) {
+            if (hasRevealedVote(panel.confirmedMediators[i], _disputeId)) {
+                if (dispute.granted && votes[panel.confirmedMediators[i]][_disputeId] == true) {
                     feesToMediator[panel.confirmedMediators[i]] += mediatorFee;
                     remainingFees -= mediatorFee;
                 } else if (!dispute.granted && votes[panel.confirmedMediators[i]][_disputeId] == false) {
@@ -491,7 +488,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
             }
         }
         feesHeld[_disputeId] -= dispute.mediationFee;
-        if(remainingFees > 0) {
+        if (remainingFees > 0) {
             mediatorPool.fundMediationReserve{value: remainingFees}();
         }
         uint256 majorityVotes;
@@ -509,47 +506,47 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      */
     function acceptCase(uint256 _disputeId) external payable {
         Panel storage panel = panels[_disputeId];
-        if(panel.confirmedMediators.length >= mediatorsNeeded(_disputeId)) revert MediationService__MediatorSeatsFilled();
-        for(uint i; i < panel.confirmedMediators.length; ++i) {
-            if(msg.sender == panel.confirmedMediators[i]) revert MediationService__AlreadyConfirmedMediator();
+        if (panel.confirmedMediators.length >= mediatorsNeeded(_disputeId)) revert MediationService__MediatorSeatsFilled();
+        for (uint i; i < panel.confirmedMediators.length; ++i) {
+            if (msg.sender == panel.confirmedMediators[i]) revert MediationService__AlreadyConfirmedMediator();
         }
-        if(msg.value < mediatorFlatFee) revert MediationService__InsufficientMediatorStake();
-        if(mediatorPool.getMediatorStatus(msg.sender) != IMediatorPool.MediatorStatus.Active) revert MediationService__InvalidMediator();
+        if (msg.value < mediatorFlatFee) revert MediationService__InsufficientMediatorStake();
+        if (mediatorPool.getMediatorStatus(msg.sender) != IMediatorPool.MediatorStatus.Active) revert MediationService__InvalidMediator();
         bool isDrawnMediator;
-        for(uint i; i < panel.drawnMediators.length; ++i) {
-            if(msg.sender == panel.drawnMediators[i]) {
+        for (uint i; i < panel.drawnMediators.length; ++i) {
+            if (msg.sender == panel.drawnMediators[i]) {
                 isDrawnMediator = true;
                 break;
             }
         }
-        if(!isDrawnMediator) revert MediationService__NotDrawnMediator();
+        if (!isDrawnMediator) revert MediationService__NotDrawnMediator();
         mediatorStakes[msg.sender][_disputeId] = msg.value;
         panel.confirmedMediators.push(msg.sender);
         emit MediatorConfirmed(_disputeId, msg.sender);
-        if(panel.confirmedMediators.length == mediatorsNeeded(_disputeId)) {
+        if (panel.confirmedMediators.length == mediatorsNeeded(_disputeId)) {
             _panelAssembled(_disputeId);
         }
     }
 
     /**
      * @notice mediator commits their hidden vote
-     * @dev calls _allVotesCommitted() when if call is the last commit needed
-     * @param _commit keccak256 hash of packed abi encoding of vote (bool) and mediator's salt
+     * @dev calls _allVotesCommitted() if call is the last commit needed
+     * @param _commit keccak256 hash of packed abi encoding of vote (bool) + mediator's salt
      */
     function commitVote(uint256 _disputeId, bytes32 _commit) external {
-        if(uint(getCommit(msg.sender, _disputeId)) != 0) revert MediationService__MediatorHasAlreadyCommmitedVote();
-        if(uint(_commit) == 0) revert MediationService__InvalidCommit();
+        if (uint(getCommit(msg.sender, _disputeId)) != 0) revert MediationService__MediatorHasAlreadyCommmitedVote();
+        if (uint(_commit) == 0) revert MediationService__InvalidCommit();
         Panel memory panel = getPanel(_disputeId);
         bool isMediator;
         uint256 voteCount;
-        for(uint i; i < panel.confirmedMediators.length; ++i) {
-            if(msg.sender == panel.confirmedMediators[i]) isMediator = true;
-            if(uint(getCommit(panel.confirmedMediators[i], _disputeId)) != 0) ++voteCount;
+        for (uint i; i < panel.confirmedMediators.length; ++i) {
+            if (msg.sender == panel.confirmedMediators[i]) isMediator = true;
+            if (uint(getCommit(panel.confirmedMediators[i], _disputeId)) != 0) ++voteCount;
         }
-        if(!isMediator) revert MediationService__InvalidMediator();
+        if (!isMediator) revert MediationService__InvalidMediator();
         commits[msg.sender][_disputeId] = _commit;
         emit VoteCommitted(_disputeId, msg.sender, _commit);
-        if(voteCount + 1 >= mediatorsNeeded(_disputeId)) {
+        if (voteCount + 1 >= mediatorsNeeded(_disputeId)) {
             _allVotesCommitted(_disputeId);
         }
     }
@@ -561,20 +558,20 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      * @param _salt string originally encoded in commit
      */
     function revealVote(uint256 _disputeId, bool _vote, string calldata _salt) external {
-        if(!isConfirmedMediator(_disputeId, msg.sender)) revert MediationService__InvalidMediator();
-        if(getDispute(_disputeId).phase != Phase.Reveal) revert MediationService__CannotRevealBeforeAllVotesCommitted();
-        if(hasRevealedVote(msg.sender, _disputeId)) revert MediationService__AlreadyRevealed();
+        if (!isConfirmedMediator(_disputeId, msg.sender)) revert MediationService__InvalidMediator();
+        if (getDispute(_disputeId).phase != Phase.Reveal) revert MediationService__CannotRevealBeforeAllVotesCommitted();
+        if (hasRevealedVote(msg.sender, _disputeId)) revert MediationService__AlreadyRevealed();
         bytes32 reveal = keccak256(abi.encodePacked(_vote, _salt));
-        if(reveal != getCommit(msg.sender, _disputeId)) revert MediationService__RevealDoesNotMatchCommit();
+        if (reveal != getCommit(msg.sender, _disputeId)) revert MediationService__RevealDoesNotMatchCommit();
         votes[msg.sender][_disputeId] = _vote;
         hasRevealed[msg.sender][_disputeId] = true;
         uint256 stakeRefund = mediatorStakes[msg.sender][_disputeId];
         mediatorStakes[msg.sender][_disputeId] -= stakeRefund;
         (bool success,) = msg.sender.call{value: stakeRefund}("");
-        if(!success) revert MediationService__TransferFailed();
+        if (!success) revert MediationService__TransferFailed();
         emit VoteRevealed(_disputeId, msg.sender, _vote);
         (uint256 votesFor, uint256 votesAgainst) = _countVotes(_disputeId);
-        if(votesFor + votesAgainst == mediatorsNeeded(_disputeId)) {
+        if (votesFor + votesAgainst == mediatorsNeeded(_disputeId)) {
             _renderDecision(_disputeId, votesFor, votesAgainst);
         }
     }
@@ -584,10 +581,10 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      */
     function claimMediatorFees() external {
         uint256 feesOwed = feesToMediator[msg.sender];
-        if(feesOwed < 1) revert MediationService__NoMediatorFeesOwed();
+        if (feesOwed < 1) revert MediationService__NoMediatorFeesOwed();
         feesToMediator[msg.sender] = 0;
         (bool success,) = msg.sender.call{value: feesOwed}("");
-        if(!success) revert MediationService__TransferFailed();
+        if (!success) revert MediationService__TransferFailed();
         emit MediatorFeesClaimed(msg.sender, feesOwed);
     }
 
@@ -601,12 +598,12 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      */
     function drawAdditionalMediators(uint256 _disputeId) external {
         Dispute memory dispute = getDispute(_disputeId);
-        if(dispute.phase != Phase.PanelSelection) revert MediationService__OnlyDuringPanelSelection();
-        if(block.timestamp < dispute.selectionStart + PANEL_SELECTION_PERIOD) {
+        if (dispute.phase != Phase.PanelSelection) revert MediationService__OnlyDuringPanelSelection();
+        if (block.timestamp < dispute.selectionStart + PANEL_SELECTION_PERIOD) {
             revert MediationService__InitialSelectionPeriodStillOpen();
         } 
         Panel memory panel = getPanel(_disputeId);
-        if(panel.drawnMediators.length > mediatorsNeeded(_disputeId) * 3) revert MediationService__PanelAlreadyRedrawn();
+        if (panel.drawnMediators.length > mediatorsNeeded(_disputeId) * 3) revert MediationService__PanelAlreadyRedrawn();
         uint256 requestId = _selectPanel(_disputeId);
         emit AdditionalMediatorDrawingInitiated(dispute.disputeId, requestId);
     }
@@ -616,18 +613,18 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      * @dev can only be called by admin and only after a redraw has been made via drawAdditionalMediators()
      */
     function assignAdditionalMediators(uint256 _disputeId, address[] calldata _additionalMediators) external {
-        if(!IGovernor(GOVERNOR).isAdmin(msg.sender)) revert MediationService__OnlyAdmin();
+        if (!IGovernor(GOVERNOR).isAdmin(msg.sender)) revert MediationService__OnlyAdmin();
         Dispute memory dispute = getDispute(_disputeId);
-        if(dispute.phase != Phase.PanelSelection) revert MediationService__OnlyDuringPanelSelection();
-        if(block.timestamp < dispute.selectionStart + PANEL_SELECTION_PERIOD) {
+        if (dispute.phase != Phase.PanelSelection) revert MediationService__OnlyDuringPanelSelection();
+        if (block.timestamp < dispute.selectionStart + PANEL_SELECTION_PERIOD) {
             revert MediationService__InitialSelectionPeriodStillOpen();
         } 
         Panel storage panel = panels[_disputeId];
-        if(!(panel.drawnMediators.length > mediatorsNeeded(_disputeId) * 3)) revert MediationService__PanelNotRedrawn();
-        for(uint i; i < _additionalMediators.length; ++i) {
-            if(isConfirmedMediator(dispute.disputeId, _additionalMediators[i])) revert MediationService__InvalidMediator();
-            if(!mediatorPool.isEligible(_additionalMediators[i])) revert MediationService__InvalidMediator();
-            if(_additionalMediators[i] == dispute.claimant || _additionalMediators[i] == dispute.respondent) {
+        if (!(panel.drawnMediators.length > mediatorsNeeded(_disputeId) * 3)) revert MediationService__PanelNotRedrawn();
+        for (uint i; i < _additionalMediators.length; ++i) {
+            if (isConfirmedMediator(dispute.disputeId, _additionalMediators[i])) revert MediationService__InvalidMediator();
+            if (!mediatorPool.isEligible(_additionalMediators[i])) revert MediationService__InvalidMediator();
+            if (_additionalMediators[i] == dispute.claimant || _additionalMediators[i] == dispute.respondent) {
                 revert MediationService__InvalidMediator();
             }
             panel.drawnMediators.push(_additionalMediators[i]);
@@ -642,11 +639,11 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      */
     function overdueCommit(uint256 _disputeId) external {
         Dispute storage dispute = disputes[_disputeId];
-        if(dispute.phase != Phase.Voting) revert MediationService__NoOverdueCommits();
-        if(block.timestamp < dispute.votingStart + VOTING_PERIOD) revert MediationService__VotingPeriodStillActive();
+        if (dispute.phase != Phase.Voting) revert MediationService__NoOverdueCommits();
+        if (block.timestamp < dispute.votingStart + VOTING_PERIOD) revert MediationService__VotingPeriodStillActive();
         Panel memory panel = getPanel(dispute.disputeId);
-        for(uint i; i < panel.confirmedMediators.length; ++i) {
-            if(uint(getCommit(panel.confirmedMediators[i], dispute.disputeId)) == 0) {
+        for (uint i; i < panel.confirmedMediators.length; ++i) {
+            if (uint(getCommit(panel.confirmedMediators[i], dispute.disputeId)) == 0) {
                 uint256 stakeForfeit = getMediatorStakeHeld(panel.confirmedMediators[i], dispute.disputeId);
                 mediatorStakes[panel.confirmedMediators[i]][dispute.disputeId] -= stakeForfeit;
                 mediatorPool.fundMediationReserve{value: stakeForfeit}();
@@ -665,21 +662,21 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      */
     function overdueReveal(uint256 _disputeId) external {
         Dispute memory dispute = getDispute(_disputeId);
-        if(dispute.phase != Phase.Reveal) revert MediationService__OnlyDuringReveal();
-        if(block.timestamp < dispute.revealStart + REVEAL_PERIOD) revert MediationService__RevealPeriodStillActive();
+        if (dispute.phase != Phase.Reveal) revert MediationService__OnlyDuringReveal();
+        if (block.timestamp < dispute.revealStart + REVEAL_PERIOD) revert MediationService__RevealPeriodStillActive();
         (uint256 votesFor, uint256 votesAgainst) = _countVotes(dispute.disputeId);
         uint256 votesNeeded = mediatorsNeeded(dispute.disputeId);
         uint256 totalStakeForfeits; 
         Panel memory panel = getPanel(dispute.disputeId);
         for(uint i; i < panel.confirmedMediators.length; ++i) {
-            if(!hasRevealedVote(panel.confirmedMediators[i], dispute.disputeId)) {
+            if (!hasRevealedVote(panel.confirmedMediators[i], dispute.disputeId)) {
                 uint256 stakeForfeit = getMediatorStakeHeld(panel.confirmedMediators[i], dispute.disputeId);
                 mediatorStakes[panel.confirmedMediators[i]][dispute.disputeId] -= stakeForfeit;
                 totalStakeForfeits += stakeForfeit; 
                 _removeMediator(dispute.disputeId, panel.confirmedMediators[i]);
             }
         }
-        if((votesFor > votesNeeded / 2) || (votesAgainst > votesNeeded / 2)) { 
+        if ((votesFor > votesNeeded / 2) || (votesAgainst > votesNeeded / 2)) { 
             _renderDecision(dispute.disputeId, votesFor, votesAgainst); 
         } else { 
             votesTied[dispute.disputeId] = true;
@@ -689,14 +686,14 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     }
 
     /**
-     * @dev removes a mediator from the panel of a dispute
+     * @notice removes a mediator from the panel of a dispute
      * @dev called internally when a mediator fails to commit or reveal
      */
     function _removeMediator(uint256 _disputeId, address _mediator) private {
         Panel storage panel = panels[_disputeId];
-        for(uint i; i < panel.confirmedMediators.length; ++i) {
-            if(panel.confirmedMediators[i] == _mediator) {
-                if(i == panel.confirmedMediators.length - 1) panel.confirmedMediators.pop();
+        for (uint i; i < panel.confirmedMediators.length; ++i) {
+            if (panel.confirmedMediators[i] == _mediator) {
+                if (i == panel.confirmedMediators.length - 1) panel.confirmedMediators.pop();
                 else {
                     address temp = panel.confirmedMediators[panel.confirmedMediators.length - 1];
                     panel.confirmedMediators[panel.confirmedMediators.length - 1] = panel.confirmedMediators[i];
@@ -705,9 +702,9 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
                 }
             }
         }
-        for(uint i; i < panel.drawnMediators.length; ++i) {
-            if(panel.drawnMediators[i] == _mediator) {
-                if(i == panel.drawnMediators.length - 1) panel.drawnMediators.pop();
+        for (uint i; i < panel.drawnMediators.length; ++i) {
+            if (panel.drawnMediators[i] == _mediator) {
+                if (i == panel.drawnMediators.length - 1) panel.drawnMediators.pop();
                 else {
                     address temp = panel.drawnMediators[panel.drawnMediators.length - 1];
                     panel.drawnMediators[panel.drawnMediators.length - 1] = panel.drawnMediators[i];
@@ -724,13 +721,13 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      * @dev can only be called by an admin address
      */
     function assignArbiter(uint256 _disputeId, address _arbiter) external {
-        if(!IGovernor(GOVERNOR).isAdmin(msg.sender)) revert MediationService__OnlyAdmin();
+        if (!IGovernor(GOVERNOR).isAdmin(msg.sender)) revert MediationService__OnlyAdmin();
         Dispute memory dispute = getDispute(_disputeId);
-        if(!votesTied[dispute.disputeId]) revert MediationService__CaseNotDeadlocked();
-        if(dispute.phase != Phase.Reveal) revert MediationService__OnlyDuringReveal();
-        if(_arbiter == dispute.claimant || _arbiter == dispute.respondent) revert MediationService__InvalidArbiter();
-        if(!mediatorPool.isEligible(_arbiter)) revert MediationService__InvalidArbiter();
-        if(isConfirmedMediator(dispute.disputeId, _arbiter)) revert MediationService__InvalidArbiter();
+        if (!votesTied[dispute.disputeId]) revert MediationService__CaseNotDeadlocked();
+        if (dispute.phase != Phase.Reveal) revert MediationService__OnlyDuringReveal();
+        if (_arbiter == dispute.claimant || _arbiter == dispute.respondent) revert MediationService__InvalidArbiter();
+        if (!mediatorPool.isEligible(_arbiter)) revert MediationService__InvalidArbiter();
+        if (isConfirmedMediator(dispute.disputeId, _arbiter)) revert MediationService__InvalidArbiter();
         arbiter[dispute.disputeId] = _arbiter;
         emit ArbiterAssigned(dispute.disputeId, _arbiter);
     }
@@ -741,8 +738,8 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      */
     function breakTie(uint256 _disputeId, bool _arbiterVote) external {
         Dispute memory dispute = getDispute(_disputeId);
-        if(dispute.phase != Phase.Reveal) revert MediationService__OnlyDuringReveal();
-        if(msg.sender != arbiter[dispute.disputeId]) revert MediationService__InvalidArbiter();
+        if (dispute.phase != Phase.Reveal) revert MediationService__OnlyDuringReveal();
+        if (msg.sender != arbiter[dispute.disputeId]) revert MediationService__InvalidArbiter();
         (uint256 votesFor, uint256 votesAgainst) = _countVotes(dispute.disputeId);
         (_arbiterVote == true) ? ++votesFor : ++votesAgainst;
         _renderDecision(dispute.disputeId, votesFor, votesAgainst);

@@ -183,13 +183,23 @@ contract TestSetup is Test, DataStructuresLibrary {
     function _registerMediators() public {
         uint256 stakeAmount = 100 ether;
         for(uint i; i < users.length; ++i) {
+            // vm.prank(users[i]);
+            // mediatorPool.registerAsMediator{value: stakeAmount}();
+
+            vm.prank(admin1);
+            mediatorPool.registerMediator(users[i]);
             vm.prank(users[i]);
-            mediatorPool.registerAsMediator{value: stakeAmount}();
+            mediatorPool.stake{value: stakeAmount}();
+
             stakeAmount += 10 ether;
         }
         for(uint i; i < admins.length; ++i) {
-            vm.prank(admins[i]);
-            mediatorPool.registerAsMediator{value: stakeAmount}();
+            vm.startPrank(admins[i]);
+            // mediatorPool.registerAsMediator{value: stakeAmount}();
+            mediatorPool.registerMediator(admins[i]);
+            mediatorPool.stake{value: stakeAmount}();
+            vm.stopPrank();
+
             stakeAmount += 10 ether;
         }
     }

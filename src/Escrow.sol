@@ -21,8 +21,6 @@ contract Escrow is DataStructuresLibrary {
     bool private buyerHasWithdrawn = false;
     bool private providerHasWithdrawn = false;
 
-    // event EscrowReleased(address recipient, uint256 amountReleased, uint256 commissionFeePaid);
-
     error Escrow__OnlyMarketplace();
     error Escrow__InsufficientAmount();
     error Escrow__TransferFailed();
@@ -60,54 +58,55 @@ contract Escrow is DataStructuresLibrary {
      * @dev called by Marketplace contract to verify Provider has staked
      */
     function verifyProviderStake() external returns (bool) {
-        if(msg.sender != MARKETPLACE) revert Escrow__OnlyMarketplace();
-        if(PAYMENT_TOKEN != address(0)) {
-            if(IERC20(PAYMENT_TOKEN).balanceOf(address(this)) < (PROJECT_FEE + PROVIDER_STAKE)) return false;
+        if (msg.sender != MARKETPLACE) revert Escrow__OnlyMarketplace();
+        if (PAYMENT_TOKEN != address(0)) {
+            if (IERC20(PAYMENT_TOKEN).balanceOf(address(this)) < (PROJECT_FEE + PROVIDER_STAKE)) return false;
         } else {
-            if(address(this).balance < (PROJECT_FEE + PROVIDER_STAKE)) return false;
+            if (address(this).balance < (PROJECT_FEE + PROVIDER_STAKE)) return false;
         }
-        providerHasStaked = true;
+        providerHasStaked = true; 
         return providerHasStaked;
     } 
 
     /**
-     * @notice transfers amountDue() to caller
-     * @dev transfers commissionFee to Marketplace when Provider withdraws
+     * @notice Transfers:
+     *   - amountDue() to caller
+     *   - commissionFee to Marketplace (on Provider withdrawal)
      */
     function withdraw() external {
-        if(msg.sender != BUYER && msg.sender !=PROVIDER) revert Escrow__OnlyBuyerOrProvider();
-        if(!isReleasable()) revert Escrow__NotReleasable();
-        if(hasWithdrawn(msg.sender)) revert Escrow__UserHasAlreadyWithdrawn();
+        if (msg.sender != BUYER && msg.sender !=PROVIDER) revert Escrow__OnlyBuyerOrProvider();
+        if (!isReleasable()) revert Escrow__NotReleasable();
+        if (hasWithdrawn(msg.sender)) revert Escrow__UserHasAlreadyWithdrawn();
 
         (uint256 amount, uint256 commissionFee) = amountDue(msg.sender);
-        if(amount == 0) revert Escrow__NoPaymentDue();
+        if (amount == 0) revert Escrow__NoPaymentDue();
 
         (msg.sender == BUYER) ? buyerHasWithdrawn = true : providerHasWithdrawn = true;
 
-        if(PAYMENT_TOKEN == address(0)) {
+        if (PAYMENT_TOKEN == address(0)) {
             (bool success,) = msg.sender.call{value: amount}("");
-            if(!success) revert Escrow__TransferFailed();
+            if (!success) revert Escrow__TransferFailed();
         } else {
             bool success = IERC20(PAYMENT_TOKEN).transfer(msg.sender, amount);
-            if(!success) revert Escrow__TransferFailed();
+            if (!success) revert Escrow__TransferFailed();
         }
-        if(msg.sender == PROVIDER) {
-            if(PAYMENT_TOKEN == address(0)) {
+
+        if (msg.sender == PROVIDER) {
+            if (PAYMENT_TOKEN == address(0)) {
                 (bool success,) = MARKETPLACE.call{value: commissionFee}("");
-                if(!success) revert Escrow__CommissionTransferFailed();
+                if (!success) revert Escrow__CommissionTransferFailed();
             } else {
                 bool success = IERC20(PAYMENT_TOKEN).transfer(MARKETPLACE, commissionFee);
-                if(!success) revert Escrow__CommissionTransferFailed();
+                if (!success) revert Escrow__CommissionTransferFailed();
             }
             IMarketplace(MARKETPLACE).receiveCommission(PROJECT_ID, commissionFee);
         }
-        // emit EscrowReleased(msg.sender, amount, commissionFee);
         IMarketplace(MARKETPLACE).escrowWithdrawnEvent(PROJECT_ID, msg.sender, amount, commissionFee);
     }
 
     function isReleasable() public view returns (bool) {
         Status status = IMarketplace(MARKETPLACE).getProjectStatus(PROJECT_ID);
-        if(
+        if (
             status == Status.Cancelled ||
             status == Status.Approved ||
             status == Status.Resolved_ChangeOrder ||
@@ -126,62 +125,58 @@ contract Escrow is DataStructuresLibrary {
         uint256 commissionFee;
         IMarketplace marketplace = IMarketplace(MARKETPLACE);
         Status status = marketplace.getProjectStatus(PROJECT_ID);
-        if(status == Status.Cancelled) {
+        if (status == Status.Cancelled) {
             (_user == BUYER) ? amount = PROJECT_FEE : amount = 0;
-        } 
-        else if(
+        } else if (
             status == Status.Approved || 
             status == Status.Resolved_ReviewOverdue ||
             status == Status.Resolved_MediationDismissed
         ) {
-            if(_user == PROVIDER) {
+            if (_user == PROVIDER) {
                 commissionFee = calculateCommissionFee(PROJECT_FEE);
                 amount = (PROJECT_FEE - commissionFee) + PROVIDER_STAKE;
             }
-        } 
-        else if(status == Status.Resolved_ChangeOrder) {
+        } else if (status == Status.Resolved_ChangeOrder) {
             ChangeOrder memory changeOrder = marketplace.getActiveChangeOrder(PROJECT_ID);
-            if(_user == BUYER) {
+            if (_user == BUYER) {
                 amount = (PROJECT_FEE - changeOrder.adjustedProjectFee) + changeOrder.providerStakeForfeit;
-            } else if(_user == PROVIDER) {
+            } else if (_user == PROVIDER) {
                 commissionFee = calculateCommissionFee(changeOrder.adjustedProjectFee);
                 amount = (changeOrder.adjustedProjectFee - commissionFee) + (PROVIDER_STAKE - changeOrder.providerStakeForfeit);
             }
-        } 
-        else if(status == Status.Resolved_Mediation) {
+        } else if (status == Status.Resolved_Mediation) {
             uint256 disputeId = IMarketplace(MARKETPLACE).getDisputeId(PROJECT_ID);
             Dispute memory dispute = IMediationService(MEDIATION_SERVICE).getDispute(disputeId);
-            if(dispute.granted) {
-                if(_user == BUYER) {
+            if (dispute.granted) {
+                if (_user == BUYER) {
                     amount = (PROJECT_FEE - dispute.adjustedProjectFee) + dispute.providerStakeForfeit;
-                } else if(_user == PROVIDER) {
-                    if((dispute.adjustedProjectFee - dispute.providerStakeForfeit) > 0) {
+                } else if (_user == PROVIDER) {
+                    if ((dispute.adjustedProjectFee - dispute.providerStakeForfeit) > 0) {
                          commissionFee = calculateCommissionFee(dispute.adjustedProjectFee);
                     }
                     amount = (dispute.adjustedProjectFee - commissionFee) + (PROVIDER_STAKE - dispute.providerStakeForfeit);
                 }
             } else { // dispute NOT granted
-                if(_user == PROVIDER) {
+                if (_user == PROVIDER) {
                     commissionFee = calculateCommissionFee(PROJECT_FEE);
                     amount = (PROJECT_FEE - commissionFee) + PROVIDER_STAKE;
                 }
             }
-
         }
         return (amount, commissionFee);
     }
 
     /**
-     * @dev if _totalPaid is >= 100, returns 1% of _totalPaid, else returns 0 
+     * @notice if _totalPaid is >= 100, returns 1% of _totalPaid, else returns 0 
      */
     function calculateCommissionFee(uint256 _totalPaid) private pure returns (uint256) {
-        if(_totalPaid < 100) return 0;
-        return _totalPaid/100;
+        if (_totalPaid < 100) return 0;
+        return _totalPaid / 100;
     }
 
     function hasWithdrawn(address _user) public view returns (bool) {
-        if(_user == BUYER && buyerHasWithdrawn) return true;
-        if(_user == PROVIDER && providerHasWithdrawn) return true;
+        if (_user == BUYER && buyerHasWithdrawn) return true;
+        if (_user == PROVIDER && providerHasWithdrawn) return true;
         return false;
     }
 

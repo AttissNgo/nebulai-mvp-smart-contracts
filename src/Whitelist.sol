@@ -18,12 +18,12 @@ contract Whitelist {
     error Whitelist__NotApproved();
 
     modifier onlyAdmin {
-        if(!IGovernor(GOVERNOR).isAdmin(msg.sender)) revert Whitelist__OnlyAdmin();
+        if (!IGovernor(GOVERNOR).isAdmin(msg.sender)) revert Whitelist__OnlyAdmin();
         _;
     }
 
     modifier onlyGovernor {
-        if(msg.sender != GOVERNOR) revert Whitelist__OnlyGovernor();
+        if (msg.sender != GOVERNOR) revert Whitelist__OnlyGovernor();
         _;
     }
 
@@ -32,13 +32,13 @@ contract Whitelist {
     }
 
     function approveAddress(address _address) external onlyAdmin {
-        if(approvedAddresses[_address]) revert Whitelist__AlreadyApproved();
+        if (approvedAddresses[_address]) revert Whitelist__AlreadyApproved();
         approvedAddresses[_address] = true;
         emit Whitelisted(_address);
     }
 
     function revokeApproval(address _address) external onlyAdmin {
-        if(!approvedAddresses[_address]) revert Whitelist__NotApproved();
+        if (!approvedAddresses[_address]) revert Whitelist__NotApproved();
         approvedAddresses[_address] = false;
         emit ApprovalRevoked(_address);
     }
