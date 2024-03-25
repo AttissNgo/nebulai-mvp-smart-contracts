@@ -32,7 +32,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      * @notice parameters for requesting random words from Chainlink VRF
      */
     VRFCoordinatorV2Interface public immutable VRF_COORDINATOR;
-    bytes32 public keyHash = 0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f;
+    bytes32 public keyHash = 0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f; // mumbai testnet 500 gwei keyhash
     uint64 public subscriptionId;
     uint16 public requestConfirmations = 3;
     uint32 public callbackGasLimit = 800000;
@@ -54,6 +54,14 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     uint24 public constant PANEL_SELECTION_PERIOD = 3 days;
     uint24 public constant VOTING_PERIOD = 4 days;
     uint24 public constant REVEAL_PERIOD = 3 days;
+
+    /**
+     * @dev constant for MVP - should be adjustable (via Governor) in production
+     */
+    uint256 public constant PANEL_SIZE_NORMAL = 3;
+    uint256 public constant PANEL_SIZE_APPEAL = 5;
+    uint256 public constant PANEL_DRAWING_MULTIPLIER_NORMAL = 3;
+    uint256 public constant PANEL_DRAWING_MULTIPLIER_APPEAL = 2;
 
     event DisputeCreated(uint256 indexed disputeId, uint256 projectId);
     event AppealCreated(uint256 indexed disputeId, uint256 indexed originalDisputeId, uint256 projectId);
@@ -156,8 +164,8 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
         bool isRedraw;   
         if (dispute.selectionStart != 0) isRedraw = true;
         Panel storage panel = panels[dispute.disputeId];
-        uint256 numNeeded = mediatorsNeeded(dispute.disputeId) * 3; 
-        if (isRedraw) numNeeded = mediatorsNeeded(dispute.disputeId) * 2;
+        uint256 numNeeded = mediatorsNeeded(dispute.disputeId) * PANEL_DRAWING_MULTIPLIER_NORMAL; 
+        if (isRedraw) numNeeded = mediatorsNeeded(dispute.disputeId) * PANEL_DRAWING_MULTIPLIER_APPEAL;
         address[] memory mediatorsDrawn = new address[](numNeeded);
         uint256 nonce = 0;
         uint256 numSelected = 0;
@@ -197,7 +205,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     }
 
     /**
-     * @dev selects one of two randomly drawn mediators using weighted probability based on stake in panel pool
+     * @dev selects one of two randomly drawn mediators using weighted probability based on stake in mediator pool
      */
     function _weightedDrawing(
         address _mediatorA, 
@@ -220,13 +228,13 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     }
 
     function mediatorsNeeded(uint256 disputeId) public view returns (uint256) {
-        if (!disputes[disputeId].isAppeal) return 3;
-        else return 5;
+        if (!disputes[disputeId].isAppeal) return PANEL_SIZE_NORMAL;
+        else return PANEL_SIZE_APPEAL;
     } 
 
     function calculateMediationFee(bool isAppeal) public view returns (uint256) {
-        if (!isAppeal) return 3 * mediatorFlatFee;
-        else return 5 * mediatorFlatFee;
+        if (!isAppeal) return PANEL_SIZE_NORMAL * mediatorFlatFee;
+        else return PANEL_SIZE_APPEAL * mediatorFlatFee;
     }
 
     ////////////////////
@@ -588,9 +596,9 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
         emit MediatorFeesClaimed(msg.sender, feesOwed);
     }
 
-    ///////////////////////////
+    ////////////////////////////
     ///   PANEL EXCEPTIONS   ///
-    ///////////////////////////
+    ////////////////////////////
 
     /**
      * @notice draws additional mediators if not enough mediators have accepted case after PANEL_SELECTION_PERIOD elapses
@@ -603,7 +611,9 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
             revert MediationService__InitialSelectionPeriodStillOpen();
         } 
         Panel memory panel = getPanel(_disputeId);
-        if (panel.drawnMediators.length > mediatorsNeeded(_disputeId) * 3) revert MediationService__PanelAlreadyRedrawn();
+        if (panel.drawnMediators.length > mediatorsNeeded(_disputeId) * PANEL_DRAWING_MULTIPLIER_NORMAL) {
+            revert MediationService__PanelAlreadyRedrawn();
+        }
         uint256 requestId = _selectPanel(_disputeId);
         emit AdditionalMediatorDrawingInitiated(dispute.disputeId, requestId);
     }

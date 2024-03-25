@@ -7,6 +7,7 @@ Then, set the EVM state by running these scripts:
 
     RPC="http://127.0.0.1:8545"
     forge script script/Deployment.s.sol:DeploymentLocal --fork-url $RPC --broadcast
+    forge script script/DummyGov.s.sol:DummyGov --rpc-url $RPC --broadcast
     forge script script/Project.s.sol:CreateProject --rpc-url $RPC --sig "createMultipleProjects()" --broadcast
     cast rpc anvil_setBlockTimestampInterval 604800 --rpc-url $RPC
     cast rpc anvil_mine 1 --rpc-url $RPC
