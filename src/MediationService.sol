@@ -32,7 +32,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
      * @notice parameters for requesting random words from Chainlink VRF
      */
     VRFCoordinatorV2Interface public immutable VRF_COORDINATOR;
-    bytes32 public keyHash = 0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f; // mumbai testnet 500 gwei keyhash
+    bytes32 public keyHash;
     uint64 public subscriptionId;
     uint16 public requestConfirmations = 3;
     uint32 public callbackGasLimit = 800000;
@@ -144,6 +144,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
         address _governor,
         address _mediatorPool,
         address _vrfCoordinatorV2, 
+        bytes32 _keyHash,
         uint64 _subscriptionId,
         address _calculatedMarketplace
     ) 
@@ -152,6 +153,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
         GOVERNOR = _governor;
         mediatorPool = IMediatorPool(_mediatorPool);
         VRF_COORDINATOR = VRFCoordinatorV2Interface(_vrfCoordinatorV2);
+        keyHash = _keyHash;
         subscriptionId = _subscriptionId;
         MARKETPLACE = _calculatedMarketplace;
     }

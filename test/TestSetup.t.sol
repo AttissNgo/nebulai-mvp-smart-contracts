@@ -22,6 +22,7 @@ contract TestSetup is Test, DataStructuresLibrary {
     USDTMock public usdt; 
     VRFCoordinatorV2Mock public vrf;
     uint64 public subscriptionId;
+    bytes32 public keyHash = 0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f; // mumbai testnet 500 gwei keyhash
 
     // contracts
     Governor public governor;
@@ -138,6 +139,7 @@ contract TestSetup is Test, DataStructuresLibrary {
             address(governor), 
             address(mediatorPool),
             address(vrf),
+            keyHash,
             subscriptionId,
             predictedMarketplace ////////////////
         );
