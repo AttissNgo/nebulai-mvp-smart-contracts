@@ -1,11 +1,19 @@
 {
   "anvil": {
-    "Escrow Factory": "0x276C216D241856199A83bf27b2286659e5b877D3",
-    "Governor": "0x07882Ae1ecB7429a84f1D53048d35c4bB2056877",
-    "Marketplace": "0x3347B4d90ebe72BeFb30444C9966B2B990aE9FcB",
-    "Mediation Service": "0xfaAddC93baf78e89DCf37bA67943E1bE8F37Bb8c",
-    "Mediator Pool": "0xA7c59f010700930003b33aB25a7a0679C860f29c",
-    "Whitelist": "0x22753E4264FDDc6181dc7cce468904A80a363E44"
+    "Escrow Factory": "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
+    "Governor": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
+    "Marketplace": "0x610178dA211FEF7D417bC0e6FeD39F05609AD788",
+    "Mediation Service": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
+    "Mediator Pool": "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
+    "Whitelist": "0x0165878A594ca255338adfa4d48449f69242Eb8F"
+  },
+  "beta_mumbai": {
+    "Escrow Factory": "0x86A2FC4eF3E23aEd995C3cD1C2a3Ee482C646036",
+    "Governor": "0x40d1bBA360C8A3c0A9F7994b3C5136e768009b13",
+    "Marketplace": "0xe9Ac42be3F9E13c786517AE4CFe94C62b5423C39",
+    "Mediation Service": "0xA14d62Fa8aafD9D1Dbf495fC848Ab7d2F973A2E2",
+    "Mediator Pool": "0xb8aB6FEfbB32927152df088694f2274292d26418",
+    "Whitelist": "0x9794eb159c2ef72C52e81528F8eb6F953A24bAb1"
   },
   "mumbai": {},
   "polygon": {}

@@ -12,6 +12,7 @@ import "../src/Marketplace.sol";
 import "../test/USDTMock.sol";
 import "chainlink/VRFCoordinatorV2Mock.sol";
 import "../src/NebulaiTestTokenFaucet.sol";
+import "../src/MediationServiceBETA.sol";
 
 contract DeploymentLib is Script {
     // contracts
@@ -25,8 +26,12 @@ contract DeploymentLib is Script {
 
     // mocks & testnet contracts
     NebulaiTestTokenFaucet public testToken;
+    address public testTokenAddress;
     USDTMock public usdt; 
+    address public usdtAddress;
     VRFCoordinatorV2Mock public vrf;
+    address vrfAddress;
+    MediationServiceBETA public mediationServiceBETA;
 
     // config variables
         // vrf
@@ -65,11 +70,19 @@ contract DeploymentLib is Script {
     function _deployMocks() internal {
         console.log("deploying mocks...");
         usdt = new USDTMock(); 
+        usdtAddress = address(usdt);
         vrf = new VRFCoordinatorV2Mock(1, 1); 
+        vrfAddress = address(vrf);
         subscriptionId = vrf.createSubscription();
         vrf.fundSubscription(subscriptionId, 10 ether);
-        testToken = new NebulaiTestTokenFaucet();
         console.log("=== === mocks deployed === ===");
+    }
+
+    function _deployTestToken() internal {
+        console.log("deploying test token (NEBTT)...");
+        testToken = new NebulaiTestTokenFaucet();
+        testTokenAddress = address(testToken);
+        console.log("=== === test token deployed === ===");
     }
 
     function _deployContracts(address _deployer) internal {
@@ -82,7 +95,7 @@ contract DeploymentLib is Script {
         mediationService = new MediationService(
             address(governor), 
             address(mediatorPool),
-            address(vrf),
+            vrfAddress,
             keyHash,
             subscriptionId,
             predictedMarketplace 
@@ -96,6 +109,32 @@ contract DeploymentLib is Script {
             approvedTokens
         );
         console.log("=== === contracts deployed === ===");
+    }
+
+    function _deployContractsBETA(address _deployer) internal {
+        console.log("deploying contracts for BETA testing...");
+        governor = new Governor(admins, sigsRequired);
+        whitelist = new Whitelist(address(governor));
+        mediatorPool = new MediatorPool(address(governor), address(whitelist), minimumMediatorStake);
+        uint64 nonce = vm.getNonce(_deployer);
+        address predictedMarketplace = computeCreateAddress(_deployer, nonce + 2);
+        mediationServiceBETA = new MediationServiceBETA(
+            address(governor), 
+            address(mediatorPool),
+            vrfAddress,
+            keyHash,
+            subscriptionId,
+            predictedMarketplace 
+        );
+        escrowFactory = new EscrowFactory();
+        marketplace = new Marketplace(
+            address(governor), 
+            address(whitelist), 
+            address(mediationServiceBETA), 
+            address(escrowFactory),
+            approvedTokens
+        );
+        console.log("=== === BETA testing contracts deployed === ===");
     }
 
     // environment
@@ -157,18 +196,39 @@ contract DeploymentLib is Script {
         string memory governorAbi = vm.readFile("./out/Governor.sol/Governor.json");
         string memory path = "./json_out/GovernorAbi.json";
         vm.writeFile(path, governorAbi);
+        string memory whitelistAbi = vm.readFile("./out/Whitelist.sol/Whitelist.json");
+        path = "./json_out/WhitelistAbi.json";
+        vm.writeFile(path, whitelistAbi);
+        string memory mediatorPoolAbi = vm.readFile("./out/MediatorPool.sol/MediatorPool.json");
+        path = "./json_out/MediatorPoolAbi.json";
+        vm.writeFile(path, mediatorPoolAbi);
+        string memory mediationServiceAbi = vm.readFile("./out/MediationService.sol/MediationService.json");
+        path = "./json_out/MediationServiceAbi.json";
+        vm.writeFile(path, mediationServiceAbi);
+        string memory escrowFactoryAbi = vm.readFile("./out/EscrowFactory.sol/EscrowFactory.json");
+        path = "./json_out/EscrowFactoryAbi.json";
+        vm.writeFile(path, escrowFactoryAbi);
+        string memory marketplaceAbi = vm.readFile("./out/Marketplace.sol/Marketplace.json");
+        path = "./json_out/MarketplaceAbi.json";
+        vm.writeFile(path, marketplaceAbi);
     }
     
     // handle all outputs
     function _handleJSON_out() internal {
         _setContractNames();
+        console.log("copying deployed addresses...");
         for (uint i; i < contractAddresses.length; ++i) {
+            string memory serializedAddress = _serializeAddr(json_obj, contractNames[contractAddresses[i]], contractAddresses[i]);
+            if (contractAddresses[i] == address(0)) {
+                serializedAddress = _serializeAddr(json_obj, "Mediation Service", address(mediationServiceBETA));
+            }
             _writeToJsonOut(
-                _serializeAddr(json_obj, contractNames[contractAddresses[i]], contractAddresses[i]),
+                serializedAddress,
                 JSON_OUT_PATH, 
                 json_addressValueKey
             );
         }
+        console.log("copying ABIs...");
         _copyABIsFromOut();
     }
 
@@ -254,8 +314,6 @@ contract DeploymentLocal is DeploymentLib {
         keyHash = 0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f; // mumbai testnet 500 gwei keyhash - doesn't actually matter in local since we use mocks
         sigsRequired = 2;
         minimumMediatorStake = 20 ether;
-        approvedTokens.push(address(usdt));
-        approvedTokens.push(address(testToken));
         _setAdmins(anvilAdmins);
         _setUsers(anvilUsers);
         json_obj = "local";
@@ -269,6 +327,9 @@ contract DeploymentLocal is DeploymentLib {
         vm.startBroadcast(deployerPK);
         // deploy mocks
         _deployMocks();
+        _deployTestToken();
+        approvedTokens.push(usdtAddress);
+        approvedTokens.push(testTokenAddress);
         // deploy contracts
         _deployContracts(deployer);
         // set up env
@@ -288,6 +349,49 @@ contract DeploymentLocal is DeploymentLib {
             vm.stopBroadcast();
         }
     }
+}
+
+contract DeploymentBETA is DeploymentLib {
+    address[] public mumbaiAdmins = [
+        0x537Df8463a09D0370DeE4dE077178300340b0030, // attiss - deployer
+        0x834B1AaB6E94462Cd092F9e7013F759ED4D61D1E, // test admin for whitelisting
+        0x869752aF1b78BBA42329b9c5143A9c28af482E7f, // hussain
+        0xb3fF81238C7F68A3EB73df4b58636Eddd88D9F55, // hussain
+        0xe540A4E03adeFB734ecE9d67E1A86199ee907Caa, // attiss
+        0x298334B4895392b0BA15261194cF1642A4adf9Fc // attiss
+    ];
+
+    function setUp() public {
+        keyHash = 0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f; // mumbai testnet 500 gwei keyhash - doesn't actually matter in local since we use mocks
+        subscriptionId = 2867;
+        vrfAddress = 0x7a1BaC17Ccc5b313516C5E16fb24f7659aA5ebed;
+        sigsRequired = 2;
+        usdtAddress = 0xA02f6adc7926efeBBd59Fd43A84f4E0c0c91e832; // usdt mumai - 6 decimals
+        minimumMediatorStake = 0.001 ether;
+        _setAdmins(mumbaiAdmins);
+        json_obj = "beta";
+        json_addressValueKey = ".beta_mumbai";
+    }
+
+    function run() public {
+        uint256 deployerPK = vm.envUint("PK_MUMBAI_0");
+        address deployer = vm.addr(deployerPK);
+        
+        vm.startBroadcast(deployerPK);
+        _deployTestToken();
+        approvedTokens.push(usdtAddress);
+        approvedTokens.push(testTokenAddress);
+        // deploy contracts
+        _deployContractsBETA(deployer);
+        vm.stopBroadcast();
+
+        // json out
+        _handleJSON_out();
+        string memory mediationServiceBETAAbi = vm.readFile("./out/MediationServiceBETA.sol/MediationServiceBETA.json");
+        string memory path = "./json_out/MediationServiceBETAAbi.json";
+        vm.writeFile(path, mediationServiceBETAAbi);
+    }
+
 }
 
 contract DeploymentMumbai is DeploymentLib {
