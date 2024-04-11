@@ -33,6 +33,7 @@ contract DeploymentLib is Script {
     address public testTokenAddress;
     USDTMock public usdt; 
     address public usdtAddress;
+    address public usdcAddress;
     VRFCoordinatorV2Mock public vrfMock;
     address vrfMockAddress;
     MediationServiceBETA public mediationServiceBETA;
@@ -374,15 +375,17 @@ contract DeploymentBETA is DeploymentLib {
     ];
 
     function setUp() public {
-        keyHash = 0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f; // mumbai testnet 500 gwei keyhash - doesn't actually matter in local since we use mocks
+        keyHash = 0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f; // mumbai testnet 500 gwei keyhash 
         subscriptionId = 2867;
         vrfMockAddress = 0x7a1BaC17Ccc5b313516C5E16fb24f7659aA5ebed;
         sigsRequired = 2;
-        usdtAddress = 0xA02f6adc7926efeBBd59Fd43A84f4E0c0c91e832; // usdt mumai - 6 decimals
+        // usdtAddress = 0xA02f6adc7926efeBBd59Fd43A84f4E0c0c91e832; // usdt mumai - 6 decimals
+        usdcAddress = 0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582; // usdc amoy 
         minimumMediatorStake = 0.001 ether;
         _setAdmins(mumbaiAdmins);
         json_obj = "beta";
-        json_addressValueKey = ".beta_mumbai";
+        // json_addressValueKey = ".beta_mumbai";
+        json_addressValueKey = ".beta_amoy";
     }
 
     function run() public {
@@ -391,7 +394,8 @@ contract DeploymentBETA is DeploymentLib {
         
         vm.startBroadcast(deployerPK);
         _deployTestToken();
-        approvedTokens.push(usdtAddress);
+        // approvedTokens.push(usdtAddress);
+        approvedTokens.push(usdcAddress);
         approvedTokens.push(testTokenAddress);
         // deploy contracts
         _deployContractsBETA(deployer);
