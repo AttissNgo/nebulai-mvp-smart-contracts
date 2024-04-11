@@ -15,6 +15,10 @@ import "../src/NebulaiTestTokenFaucet.sol";
 import "../src/MediationServiceBETA.sol";
 
 contract DeploymentLib is Script {
+    
+    // local deployment flag
+    bool public isLocalDeployment = false;
+
     // contracts
     Governor public governor;
     Whitelist public whitelist;
@@ -29,8 +33,8 @@ contract DeploymentLib is Script {
     address public testTokenAddress;
     USDTMock public usdt; 
     address public usdtAddress;
-    VRFCoordinatorV2Mock public vrf;
-    address vrfAddress;
+    VRFCoordinatorV2Mock public vrfMock;
+    address vrfMockAddress;
     MediationServiceBETA public mediationServiceBETA;
 
     // config variables
@@ -71,10 +75,10 @@ contract DeploymentLib is Script {
         console.log("deploying mocks...");
         usdt = new USDTMock(); 
         usdtAddress = address(usdt);
-        vrf = new VRFCoordinatorV2Mock(1, 1); 
-        vrfAddress = address(vrf);
-        subscriptionId = vrf.createSubscription();
-        vrf.fundSubscription(subscriptionId, 10 ether);
+        vrfMock = new VRFCoordinatorV2Mock(1, 1); 
+        vrfMockAddress = address(vrfMock);
+        subscriptionId = vrfMock.createSubscription();
+        vrfMock.fundSubscription(subscriptionId, 10 ether);
         console.log("=== === mocks deployed === ===");
     }
 
@@ -95,7 +99,7 @@ contract DeploymentLib is Script {
         mediationService = new MediationService(
             address(governor), 
             address(mediatorPool),
-            vrfAddress,
+            vrfMockAddress,
             keyHash,
             subscriptionId,
             predictedMarketplace 
@@ -121,7 +125,7 @@ contract DeploymentLib is Script {
         mediationServiceBETA = new MediationServiceBETA(
             address(governor), 
             address(mediatorPool),
-            vrfAddress,
+            vrfMockAddress,
             keyHash,
             subscriptionId,
             predictedMarketplace 
@@ -163,9 +167,9 @@ contract DeploymentLib is Script {
     function _setContractNames() internal {
         contractNames[address(governor)] = "Governor";
         contractNames[address(whitelist)] = "Whitelist";
-        contractNames[address(mediatorPool)] = "Mediator Pool";
-        contractNames[address(mediationService)] = "Mediation Service";
-        contractNames[address(escrowFactory)] = "Escrow Factory";
+        contractNames[address(mediatorPool)] = "MediatorPool";
+        contractNames[address(mediationService)] = "MediationService";
+        contractNames[address(escrowFactory)] = "EscrowFactory";
         contractNames[address(marketplace)] = "Marketplace";
 
         contractAddresses.push(address(governor));
@@ -174,6 +178,13 @@ contract DeploymentLib is Script {
         contractAddresses.push(address(mediationService));
         contractAddresses.push(address(escrowFactory));
         contractAddresses.push(address(marketplace));
+    
+        if(isLocalDeployment) {
+            contractNames[address(testToken)] = "TestToken";
+            contractAddresses.push(address(testToken));
+            contractNames[address(vrfMock)] = "VRFMock";
+            contractAddresses.push(address(vrfMock));
+        }
     }
         // write deployed addresses
     function _serializeAddr(
@@ -311,6 +322,7 @@ contract DeploymentLocal is DeploymentLib {
     ];
 
     function setUp() public {
+        isLocalDeployment = true;
         keyHash = 0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f; // mumbai testnet 500 gwei keyhash - doesn't actually matter in local since we use mocks
         sigsRequired = 2;
         minimumMediatorStake = 20 ether;
@@ -364,7 +376,7 @@ contract DeploymentBETA is DeploymentLib {
     function setUp() public {
         keyHash = 0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f; // mumbai testnet 500 gwei keyhash - doesn't actually matter in local since we use mocks
         subscriptionId = 2867;
-        vrfAddress = 0x7a1BaC17Ccc5b313516C5E16fb24f7659aA5ebed;
+        vrfMockAddress = 0x7a1BaC17Ccc5b313516C5E16fb24f7659aA5ebed;
         sigsRequired = 2;
         usdtAddress = 0xA02f6adc7926efeBBd59Fd43A84f4E0c0c91e832; // usdt mumai - 6 decimals
         minimumMediatorStake = 0.001 ether;

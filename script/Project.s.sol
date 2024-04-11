@@ -48,11 +48,11 @@ contract ProjectStorage is Script, DataStructuresLibrary {
     string changeOrderDetails = "ipfs://changeOrderURI";
     string[] evidence = ["ipfs://evidence1URI", "ipfs://evidence2URI"];
 
-    string json = vm.readFile("./deploymentInfo.json");
-    address marketplaceAddr = vm.parseJsonAddress(json, ".anvil.MarketplaceAddress");
+    string json = vm.readFile("./json_out/deployedAddresses.json");
+    address marketplaceAddr = vm.parseJsonAddress(json, ".anvil.Marketplace");
     address testTokenAddr = vm.parseJsonAddress(json, ".anvil.TestToken");
-    address mediationServiceAddr = vm.parseJsonAddress(json, ".anvil.MediationServiceAddress");
-    address vrfMockAddr = vm.parseJsonAddress(json, ".anvil.VRFMockAddress");
+    address mediationServiceAddr = vm.parseJsonAddress(json, ".anvil.MediationService");
+    address vrfMockAddr = vm.parseJsonAddress(json, ".anvil.VRFMock");
 
     MarketplaceIface marketplace = MarketplaceIface(marketplaceAddr);
     IERC20 testToken = IERC20(testTokenAddr);

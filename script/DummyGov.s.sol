@@ -10,9 +10,9 @@ interface IGov {
 
 contract DummyGov is Script {
 
-    string json = vm.readFile("./deploymentInfo.json");
-    address governorAddr = vm.parseJsonAddress(json, ".anvil.GovernorAddress");
-    address mediatorPoolAddr = vm.parseJsonAddress(json, ".anvil.MediatorPoolAddress");
+    string json = vm.readFile("json_out/deployedAddresses.json");
+    address governorAddr = vm.parseJsonAddress(json, ".anvil.Governor");
+    address mediatorPoolAddr = vm.parseJsonAddress(json, ".anvil.MediatorPool");
     IGov governor = IGov(governorAddr);
     uint256 pk_0 = vm.envUint("PK_ANVIL_0");
     uint256 pk_1 = vm.envUint("PK_ANVIL_1");
@@ -20,6 +20,10 @@ contract DummyGov is Script {
     address admin1 = vm.addr(pk_0);
 
     function run() public {
+        // console.log(json);
+        // console.log(governorAddr);
+        // console.log(mediatorPoolAddr);
+
         bytes memory data1 = abi.encodeWithSignature("changeSignaturesRequired(uint256)", 2);
         vm.startBroadcast(pk_0);
         uint256 txIndex1 = governor.proposeTransaction(governorAddr, 0, data1);
