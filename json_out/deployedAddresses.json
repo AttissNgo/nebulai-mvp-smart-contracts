@@ -25,6 +25,12 @@
     "MediatorPool": "0x2696236BFB11c14C1D4D2a866B1E670406e598Ba",
     "Whitelist": "0x8227A72142561e429254181e614eAB22C2Bf5C78"
   },
-  "mumbai": {},
-  "polygon": {}
+  "polygon": {
+    "EscrowFactory": "0xB4e1017607607189bDc10f33b258558f570a352d",
+    "Governor": "0x2bE0eeaa7e88348B983FDf559b4A38cce2Ed9Ef8",
+    "Marketplace": "0xA6E94f3bE5b81C74F17264eB86B24E9a773F8476",
+    "MediationService": "0x77AAfa1109cF9EC5c021d7A4d59B9069153712D0",
+    "MediatorPool": "0xf5fD135B29A95A0816CE6B22a35DA05fe695FDc7",
+    "Whitelist": "0x29C3821242dD2B635416c08Ab38549F2aECe5d97"
+  }
 }

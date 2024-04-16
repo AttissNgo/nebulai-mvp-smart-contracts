@@ -8,7 +8,7 @@ interface IMediatorPool {
         Paused, 
         Suspended 
     }
-
+    
     function fundMediationReserve() external payable;
     function getMediator(uint256 _index) external view returns (address);
     function mediatorPoolSize() external view returns (uint256);

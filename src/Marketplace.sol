@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "./Interfaces/IWhitelist.sol";
 import "./Interfaces/IEscrow.sol";
 import "./Interfaces/IMediationService.sol";
@@ -40,7 +41,10 @@ contract Marketplace is DataStructuresLibrary {
      * @notice transaction fee charged for creating projects in marketplace, represented as a percentage of project fee
      */
     uint256 public nebulaiTxFee = 3; 
-    uint256 public constant minimumTxFee = 3 ether;
+    /**
+     * @notice expressed as 3 * (10 ** payment token decimals)
+     */
+    uint256 public constant MINIMUM_TX_FEE = 3;
 
     /**
      * @dev Transaction fees held for a Project ID (fees will be returned if Project is Cancelled)
@@ -207,7 +211,7 @@ contract Marketplace is DataStructuresLibrary {
         if (_provider == msg.sender || _provider == address(0)) revert Marketplace__InvalidProviderAddress();
         if (_dueDate < block.timestamp || _dueDate > block.timestamp + 365 days) revert Marketplace__InvalidDueDate();
         if (_reviewPeriodLength > 30 days) revert Marketplace__InvalidReviewPeriodLength();
-        uint256 txFee = calculateNebulaiTxFee(_projectFee);
+        uint256 txFee = calculateNebulaiTxFee(_projectFee, _paymentToken);
         projectIds.increment(); 
         Project memory p;
         p.projectId = projectIds.current();
@@ -619,9 +623,15 @@ contract Marketplace is DataStructuresLibrary {
     ///   UTIL   ///
     ////////////////
 
-    function calculateNebulaiTxFee(uint256 _projectFee) public view returns (uint256) {
+    function calculateNebulaiTxFee(uint256 _projectFee, address _paymentToken) public view returns (uint256) {
+        uint256 decimals = 18;
+        if (_paymentToken != address(0)) {
+            decimals = IERC20Metadata(_paymentToken).decimals();
+            if (decimals == 0) decimals = 18; 
+        }
+        uint256 minTxFee = MINIMUM_TX_FEE * (10 ** decimals);
         uint256 txFee = (_projectFee * nebulaiTxFee) / 100;
-        if (txFee < minimumTxFee) txFee = minimumTxFee;
+        if (txFee < minTxFee) txFee = minTxFee;
         return txFee;
     }
 

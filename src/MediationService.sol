@@ -18,10 +18,10 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     IMediatorPool public mediatorPool;
 
     /**
-     * @notice the amount that will be paid to mediators who vote in the majority
+     * @notice the amount that will be paid (in MATIC) to mediators who vote in the majority
      * @notice mediators must stake an amount equal to mediatorFlatFee to accept a case
      */
-    uint256 public mediatorFlatFee = 20 ether; 
+    uint256 public mediatorFlatFee; 
 
     /**
      * @notice the mediation fees held for a Dispute ID
@@ -146,7 +146,8 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
         address _vrfCoordinatorV2, 
         bytes32 _keyHash,
         uint64 _subscriptionId,
-        address _calculatedMarketplace
+        address _calculatedMarketplace,
+        uint256 _mediatorFlatFee
     ) 
          VRFConsumerBaseV2(_vrfCoordinatorV2) 
     {
@@ -156,6 +157,7 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
         keyHash = _keyHash;
         subscriptionId = _subscriptionId;
         MARKETPLACE = _calculatedMarketplace;
+        mediatorFlatFee = _mediatorFlatFee;
     }
 
     /**
@@ -765,6 +767,23 @@ contract MediationService is VRFConsumerBaseV2, DataStructuresLibrary {
     function setMediatorFlatFee(uint256 _flatFee) external onlyGovernor {
         require(_flatFee > 0);
         mediatorFlatFee = _flatFee;
+    }
+
+    function setVrfConfig(
+        bytes32 _keyHash,
+        uint64 _subscriptionId,
+        uint16 _requestConfirmations,
+        uint32 _callbackGasLimit,
+        uint32 _numWords
+    ) 
+        external 
+        onlyGovernor 
+    {
+        keyHash = _keyHash;
+        subscriptionId = _subscriptionId;
+        requestConfirmations = _requestConfirmations;
+        callbackGasLimit = _callbackGasLimit;
+        numWords = _numWords; 
     }
 
     //////////////////

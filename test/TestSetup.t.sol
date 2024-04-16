@@ -34,6 +34,7 @@ contract TestSetup is Test, DataStructuresLibrary {
     uint256 public minimumMediatorStake = 20 ether;
 
     MediationService public mediationService;
+    uint256 mediatorFlatFee = 20 ether;
 
     EscrowFactory public escrowFactory;
     Marketplace public marketplace;
@@ -141,7 +142,8 @@ contract TestSetup is Test, DataStructuresLibrary {
             address(vrf),
             keyHash,
             subscriptionId,
-            predictedMarketplace ////////////////
+            predictedMarketplace,
+            mediatorFlatFee
         );
         approvedTokens.push(address(usdt));
         escrowFactory = new EscrowFactory();
@@ -229,7 +231,7 @@ contract TestSetup is Test, DataStructuresLibrary {
         internal
         returns (uint256)
     {
-        uint256 txFee = marketplace.calculateNebulaiTxFee(_projectFee);
+        uint256 txFee = marketplace.calculateNebulaiTxFee(_projectFee, _paymentToken);
         uint256 value;
         if(_paymentToken != address(0)) {
             // if not native, approve amount

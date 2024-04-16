@@ -35,7 +35,7 @@ contract DeploymentLib is Script {
     address public usdtAddress;
     address public usdcAddress;
     VRFCoordinatorV2Mock public vrfMock;
-    address vrfMockAddress;
+    address vrfAddress;
     MediationServiceBETA public mediationServiceBETA;
 
     // config variables
@@ -46,6 +46,8 @@ contract DeploymentLib is Script {
     uint256 public sigsRequired;
         // mediator pool
     uint256 public minimumMediatorStake; 
+        // mediation service
+    uint256 public mediatorFlatFee;
         // marketplace
     address[] public approvedTokens;
         // addresses and ABI output
@@ -77,7 +79,7 @@ contract DeploymentLib is Script {
         usdt = new USDTMock(); 
         usdtAddress = address(usdt);
         vrfMock = new VRFCoordinatorV2Mock(1, 1); 
-        vrfMockAddress = address(vrfMock);
+        vrfAddress = address(vrfMock);
         subscriptionId = vrfMock.createSubscription();
         vrfMock.fundSubscription(subscriptionId, 10 ether);
         console.log("=== === mocks deployed === ===");
@@ -100,10 +102,11 @@ contract DeploymentLib is Script {
         mediationService = new MediationService(
             address(governor), 
             address(mediatorPool),
-            vrfMockAddress,
+            vrfAddress,
             keyHash,
             subscriptionId,
-            predictedMarketplace 
+            predictedMarketplace,
+            mediatorFlatFee 
         );
         escrowFactory = new EscrowFactory();
         marketplace = new Marketplace(
@@ -126,7 +129,7 @@ contract DeploymentLib is Script {
         mediationServiceBETA = new MediationServiceBETA(
             address(governor), 
             address(mediatorPool),
-            vrfMockAddress,
+            vrfAddress,
             keyHash,
             subscriptionId,
             predictedMarketplace 
@@ -327,6 +330,7 @@ contract DeploymentLocal is DeploymentLib {
         keyHash = 0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f; // mumbai testnet 500 gwei keyhash - doesn't actually matter in local since we use mocks
         sigsRequired = 2;
         minimumMediatorStake = 20 ether;
+        mediatorFlatFee = 20 ether;
         _setAdmins(anvilAdmins);
         _setUsers(anvilUsers);
         json_obj = "local";
@@ -377,7 +381,7 @@ contract DeploymentBETA is DeploymentLib {
     function setUp() public {
         keyHash = 0x4b09e658ed251bcafeebbc69400383d49f344ace09b9576fe248bb02c003fe9f; // mumbai testnet 500 gwei keyhash 
         subscriptionId = 2867;
-        vrfMockAddress = 0x7a1BaC17Ccc5b313516C5E16fb24f7659aA5ebed;
+        vrfAddress = 0x7a1BaC17Ccc5b313516C5E16fb24f7659aA5ebed;
         sigsRequired = 2;
         // usdtAddress = 0xA02f6adc7926efeBBd59Fd43A84f4E0c0c91e832; // usdt mumai - 6 decimals
         usdcAddress = 0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582; // usdc amoy 
@@ -417,100 +421,43 @@ contract DeploymentMumbai is DeploymentLib {
     }
 }
 
+contract DeploymentPolygon is DeploymentLib {
+    address[] public polygonAdmins = [
+        0x05858362421AE513C4444F86Cf5Bc7fE669759a0, // Renatto
+        0x7f2b5dC779007709f65a51155CD18FF2eB7f3ED0, // Attiss (trust2)
+        0x69b0eD68722A6634F30b9B183AA548D1b5492BD2 // Stefano
+    ];
 
+    function setUp() public {
+        keyHash = 0xcc294a196eeeb44da2888d17c0625cc88d70d9760a69d58d853ba6581a9ab0cd; // 500 gwei gas lane Polygon 
+        vrfAddress = 0xAE975071Be8F8eE67addBC1A82488F1C24858067; // polygon
+        subscriptionId = 1170; 
+        usdtAddress = 0xc2132D05D31c914a87C6611C10748AEb04B58e8F; // usdt polygon
+        // usdcAddress = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359; // usdc polygon native
 
+        sigsRequired = 2;
+        minimumMediatorStake = 0.001 ether;
+        mediatorFlatFee = 1 ether;
 
+        _setAdmins(polygonAdmins);
+        json_obj = "polygon";
+        json_addressValueKey = ".polygon";
+    }
 
-// contract DeploymentMumbai is Script {
-
-//     NebulaiTestTokenFaucet public testToken;
-//     Governor public governor;
-//     Whitelist public whitelist;
-//     MediatorPool public mediatorPool;
-//     uint256 public minimumMediatorStake = 0.01 ether; 
-//     MediationService public mediationService;
-//     EscrowFactory public escrowFactory;
-//     Marketplace public marketplace;
-
-//     uint64 public subscriptionId = 2867;
-//     address public vrfMumbai = 0x7a1BaC17Ccc5b313516C5E16fb24f7659aA5ebed;
-
-//     address[] public admins = [
-//         0x537Df8463a09D0370DeE4dE077178300340b0030, // attiss - deployer
-//         0x834B1AaB6E94462Cd092F9e7013F759ED4D61D1E, // test admin for whitelisting
-//         0x869752aF1b78BBA42329b9c5143A9c28af482E7f, // hussain
-//         0xb3fF81238C7F68A3EB73df4b58636Eddd88D9F55, // hussain
-//         0xe540A4E03adeFB734ecE9d67E1A86199ee907Caa, // attiss
-//         0x298334B4895392b0BA15261194cF1642A4adf9Fc // attiss
-//     ];
-//     uint256 public sigsRequired = 2;
-
-//     address[] public approvedTokens;
-
-//     function setUp() public {}
-
-//     function run() public {
-
-//         uint256 pk_0 = vm.envUint("PK_MUMBAI_0"); 
-
-//         vm.startBroadcast(pk_0);
-//         // !!!! 
-//         // DON'T FORGET TO REGISTER CONSUMER WITH CHAINLINK WHEN DEPLOYING ON MUMBAI!!!
-//         // !!!!
-//         // deploy test token
-//         testToken = new NebulaiTestTokenFaucet();
-//         // deploy governor
-//         governor = new Governor(admins, sigsRequired);
-//         // deploy whitelist
-//         whitelist = new Whitelist(address(governor));
-//         // deploy jury pool
-//         mediatorPool = new MediatorPool(address(governor), address(whitelist), minimumMediatorStake);
-//         // calculate future marketplace address
-//         uint64 nonce = vm.getNonce(vm.addr(pk_0));
-//         address predictedMarketplace = computeCreateAddress(vm.addr(pk_0), nonce + 2);
-//         console.log(predictedMarketplace);
-//         // deploy mediationService
-//         mediationService = new MediationService(
-//             address(governor), 
-//             address(mediatorPool),
-//             vrfMumbai,
-//             subscriptionId,
-//             predictedMarketplace 
-//         );
-//         // deploy escrow factory
-//         escrowFactory = new EscrowFactory();
-//         // deploy marketplace
-//         approvedTokens.push(address(testToken));
-//         marketplace = new Marketplace(
-//             address(governor), 
-//             address(whitelist), 
-//             address(mediationService), 
-//             address(escrowFactory),
-//             approvedTokens
-//         );
+    function run() public {
+        uint256 deployerPK = vm.envUint("PK_MUMBAI_0");
+        address deployer = vm.addr(deployerPK);
         
-//         vm.stopBroadcast();
+        vm.startBroadcast(deployerPK);
+        approvedTokens.push(usdtAddress);
+        // deploy contracts
+        _deployContracts(deployer);
+        vm.stopBroadcast();
 
-//         string memory obj1 = "mumbai";
-//         string memory valueKey = ".mumbai";
-
-//         string memory testTokenAddr = vm.serializeAddress(obj1, "TestToken", address(testToken));
-//         string memory govAddr = vm.serializeAddress(obj1, "GovernorAddress", address(governor));
-//         string memory whitelistAddr = vm.serializeAddress(obj1, "WhitelistAddress", address(whitelist));
-//         string memory mediatorPoolAddr = vm.serializeAddress(obj1, "MediatorPoolAddress", address(mediatorPool));
-//         string memory mediationServiceAddr = vm.serializeAddress(obj1, "MediationServiceAddress", address(mediationService));
-//         string memory escrowFactoryAddr = vm.serializeAddress(obj1, "EscrowFactoryAddress", address(escrowFactory));
-//         string memory marketplaceAddr = vm.serializeAddress(obj1, "MarketplaceAddress", address(marketplace));
-
-//         vm.writeJson(testTokenAddr, "./deploymentInfo.json", valueKey);
-//         vm.writeJson(govAddr, "./deploymentInfo.json", valueKey);
-//         vm.writeJson(whitelistAddr, "./deploymentInfo.json", valueKey);
-//         vm.writeJson(mediatorPoolAddr, "./deploymentInfo.json", valueKey);
-//         vm.writeJson(mediationServiceAddr, "./deploymentInfo.json", valueKey);
-//         vm.writeJson(escrowFactoryAddr, "./deploymentInfo.json", valueKey);
-//         vm.writeJson(marketplaceAddr, "./deploymentInfo.json", valueKey);
-//     }
-// }
+        // json out
+        _handleJSON_out();
+    }
+}
 
 
 

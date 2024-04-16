@@ -8,7 +8,7 @@ import "src/DataStructuresLibrary.sol";
 import "src/Interfaces/IMediationService.sol";
 
 interface MarketplaceIface {
-    function calculateNebulaiTxFee(uint256 _projectFee) external view returns (uint256);
+    function calculateNebulaiTxFee(uint256 _projectFee, address _paymentToken) external view returns (uint256);
     function createProject(
         address _provider,
         address _paymentToken,
@@ -116,7 +116,7 @@ contract CreateProject is Script, ProjectStorage {
     function createProject() public returns (uint256) {
         (address buyer, address provider) = randomBuyerAndProvider();
         vm.startBroadcast(buyer);
-        uint256 txFee = marketplace.calculateNebulaiTxFee(projectFee);
+        uint256 txFee = marketplace.calculateNebulaiTxFee(projectFee, testTokenAddr);
         testToken.approve(marketplaceAddr, projectFee + txFee);
         uint256 projectId = marketplace.createProject(
             provider,

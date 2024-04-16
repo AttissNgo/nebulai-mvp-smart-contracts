@@ -38,8 +38,6 @@ contract EscrowFactory {
             ),
             0
         ));
-        // address escrow = payable(newEscrowContract);
-        // return escrow;
         return payable(newEscrowContract);
     }
 
