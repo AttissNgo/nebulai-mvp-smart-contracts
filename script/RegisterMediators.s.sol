@@ -24,7 +24,8 @@ contract RegisterMediators is Script {
         0x49EbaCB3A99E262977d8B16e51a4309a361F5362, // Stefano
         0x537Df8463a09D0370DeE4dE077178300340b0030, // Attiss
         0xe540A4E03adeFB734ecE9d67E1A86199ee907Caa, // Attiss
-        0x298334B4895392b0BA15261194cF1642A4adf9Fc // Attiss
+        0x298334B4895392b0BA15261194cF1642A4adf9Fc, // Attiss
+        0xaBe12036bCba9566B99e60BE32598b3F53F525f0 // Shanmukhi
     ];
 
     function run() public {
